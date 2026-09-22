@@ -9,7 +9,8 @@ Phase 1 and Packets 1–2 remain complete on `dev`. The validated P2 lifecycle c
 `afe024054bdc1d0513a49228142d7df77c95813b` on `freebuff-p2-lifecycle`; PR #1 remains draft,
 open and unmerged against `dev` at `cb20bb8cb98b8f654aa104433a542a1c717a2af2`. This P3
 candidate is isolated on `freebuff-p3-streaming`, based exactly on that validated head, with
-implementation commit `3111a6f3a2942f111107aa17d414c05ed1405f9d`.
+implementation commit `3111a6f3a2942f111107aa17d414c05ed1405f9d` plus the cleanup fix
+`c55000455bdb79cf1fba30d991da09ee7267aba7`.
 
 This checkpoint does not certify permitted live FreeBuff model access or production deployment.
 
