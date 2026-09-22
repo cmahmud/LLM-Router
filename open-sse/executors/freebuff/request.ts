@@ -1,16 +1,6 @@
 import { randomInt } from "node:crypto";
 
-const MODEL_TO_AGENT: Readonly<Record<string, string>> = {
-  "deepseek/deepseek-v4-flash": "base2-free-deepseek-flash",
-  "deepseek/deepseek-v4-pro": "base2-free-deepseek",
-  "openai/gpt-5.6-luna": "base2-free-luna",
-  "minimax/minimax-m3": "base2-free-minimax-m3",
-  "mimo/mimo-v2.5": "base2-free-mimo",
-  "z-ai/glm-5.2": "base2-free-glm",
-  "crof/kimi-k3-eco": "base2-free-kimi-k3-eco",
-  "anthropic/claude-fable-5": "base2-free-fable",
-  "meta/muse-spark-1.2-contributor": "base2-free-muse-spark",
-};
+import { getFreebuffCatalogSnapshot, resolveFreebuffAgentIdFromCatalog } from "./catalog.ts";
 
 const SERVER_OWNED_METADATA_KEYS = new Set([
   "run_id",
@@ -44,12 +34,12 @@ function generateClientSessionId(): string {
 
 export function resolveFreebuffModel(model: unknown): string | null {
   if (typeof model !== "string") return null;
-  const normalized = model.replace(/^freebuff\//, "").trim();
+  const normalized = model.replace(/^(?:freebuff|fb)\//, "").trim();
   return normalized || null;
 }
 
 export function resolveFreebuffAgentId(model: string): string | null {
-  return MODEL_TO_AGENT[model] ?? null;
+  return resolveFreebuffAgentIdFromCatalog(model, getFreebuffCatalogSnapshot());
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

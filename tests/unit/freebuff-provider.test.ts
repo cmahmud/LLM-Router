@@ -33,15 +33,15 @@ test("freebuffProvider: registry entry has valid structure and catalog", () => {
   assert.equal(freebuffProvider.executor, "freebuff");
   assert.equal(freebuffProvider.baseUrl, "https://www.codebuff.com/api/v1");
   assert.ok(Array.isArray(freebuffProvider.models));
-  assert.ok(freebuffProvider.models.length >= 8);
+  assert.ok(freebuffProvider.models.length >= 7);
+  assert.equal(freebuffProvider.liveCatalogAuthoritative, true);
 
   const flash = freebuffProvider.models.find((m) => m.id === "deepseek/deepseek-v4-flash");
   assert.ok(flash, "deepseek/deepseek-v4-flash must exist in freebuff models");
   assert.equal(flash?.supportsReasoning, true);
 
-  const minimax = freebuffProvider.models.find((m) => m.id === "minimax/minimax-m3");
-  assert.ok(minimax, "minimax/minimax-m3 must exist in freebuff models");
-  assert.equal(minimax?.supportsVision, true);
+  const withdrawn = freebuffProvider.models.find((m) => m.id === "minimax/minimax-m3");
+  assert.equal(withdrawn, undefined, "withdrawn models must not be advertised");
 });
 
 test("APIKEY_PROVIDERS_GATEWAYS: freebuff gateway metadata is defined", () => {
