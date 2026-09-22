@@ -1,0 +1,278 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { FreebuffClientError } from "../../open-sse/executors/freebuff/errors.ts";
+import {
+  FreebuffSessionManager,
+  freebuffCredentialKey,
+} from "../../open-sse/executors/freebuff/sessionManager.ts";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+test("Freebuff session manager: duplicate tokens share one single-flight admission", async () => {
+  let getCalls = 0;
+  let admitCalls = 0;
+  const admission = deferred<{
+    status: "active";
+    instanceId: string;
+    model: string;
+  }>();
+
+  const client = {
+    async getSession() {
+      getCalls += 1;
+      return { status: "none" as const };
+    },
+    async admitSession() {
+      admitCalls += 1;
+      return admission.promise;
+    },
+    async releaseSession() {},
+  };
+
+  const manager = new FreebuffSessionManager({ idleReleaseMs: 60_000 });
+  const token = "fixture-shared-token";
+  const model = "deepseek/deepseek-v4-flash";
+  const leases = Array.from({ length: 20 }, () =>
+    manager.acquire({ client, token, model })
+  );
+
+  await Promise.resolve();
+  assert.equal(getCalls, 1);
+  assert.equal(admitCalls, 1);
+
+  admission.resolve({
+    status: "active",
+    instanceId: "fixture-instance-001",
+    model,
+  });
+
+  const resolved = await Promise.all(leases);
+  assert.equal(new Set(resolved.map((lease) => lease.instanceId)).size, 1);
+  assert.equal(getCalls, 1);
+  assert.equal(admitCalls, 1);
+
+  await Promise.all(resolved.map((lease) => lease.release()));
+  await manager.shutdown();
+});
+
+test("Freebuff session manager: leader abort does not cancel shared admission for followers", async () => {
+  const admission = deferred<{
+    status: "active";
+    instanceId: string;
+    model: string;
+  }>();
+  let admitCalls = 0;
+
+  const client = {
+    async getSession() {
+      return { status: "none" as const };
+    },
+    async admitSession() {
+      admitCalls += 1;
+      return admission.promise;
+    },
+    async releaseSession() {},
+  };
+
+  const manager = new FreebuffSessionManager();
+  const leaderAbort = new AbortController();
+  const token = "fixture-shared-token";
+  const model = "deepseek/deepseek-v4-flash";
+
+  const leader = manager.acquire({
+    client,
+    token,
+    model,
+    signal: leaderAbort.signal,
+  });
+  const follower = manager.acquire({ client, token, model });
+
+  await Promise.resolve();
+  leaderAbort.abort(new DOMException("fixture abort", "AbortError"));
+  await assert.rejects(leader, /aborted/i);
+
+  admission.resolve({
+    status: "active",
+    instanceId: "fixture-instance-002",
+    model,
+  });
+
+  const followerLease = await follower;
+  assert.equal(followerLease.instanceId, "fixture-instance-002");
+  assert.equal(admitCalls, 1);
+
+  await followerLease.release();
+  await manager.shutdown();
+});
+
+test("Freebuff session manager: ambiguous admission failure reconciles once without re-POST", async () => {
+  let getCalls = 0;
+  let admitCalls = 0;
+  const model = "deepseek/deepseek-v4-flash";
+
+  const client = {
+    async getSession() {
+      getCalls += 1;
+      if (getCalls === 1) return { status: "none" as const };
+      return {
+        status: "active" as const,
+        instanceId: "fixture-reconciled-instance",
+        model,
+      };
+    },
+    async admitSession() {
+      admitCalls += 1;
+      throw new FreebuffClientError("fixture network failure", {
+        status: 502,
+        kind: "network",
+      });
+    },
+    async releaseSession() {},
+  };
+
+  const manager = new FreebuffSessionManager();
+  const lease = await manager.acquire({
+    client,
+    token: "fixture-reconcile-token",
+    model,
+  });
+
+  assert.equal(lease.instanceId, "fixture-reconciled-instance");
+  assert.equal(getCalls, 2);
+  assert.equal(admitCalls, 1);
+
+  await lease.release();
+  await manager.shutdown();
+});
+
+test("Freebuff session manager: existing unowned active session is never taken over", async () => {
+  let admitCalls = 0;
+  let deleteCalls = 0;
+  const model = "deepseek/deepseek-v4-flash";
+
+  const client = {
+    async getSession() {
+      return {
+        status: "active" as const,
+        instanceId: "fixture-foreign-instance",
+        model,
+      };
+    },
+    async admitSession() {
+      admitCalls += 1;
+      return {
+        status: "active" as const,
+        instanceId: "must-not-happen",
+        model,
+      };
+    },
+    async releaseSession() {
+      deleteCalls += 1;
+    },
+  };
+
+  const manager = new FreebuffSessionManager();
+  await assert.rejects(
+    manager.acquire({
+      client,
+      token: "fixture-foreign-token",
+      model,
+    }),
+    /already active|unowned|take over/i
+  );
+
+  assert.equal(admitCalls, 0);
+  assert.equal(deleteCalls, 0);
+  await manager.shutdown();
+});
+
+test("Freebuff session manager: model switch is refused while an owned session is leased", async () => {
+  let admitCalls = 0;
+  const client = {
+    async getSession() {
+      return { status: "none" as const };
+    },
+    async admitSession(_token: string, model: string) {
+      admitCalls += 1;
+      return {
+        status: "active" as const,
+        instanceId: "fixture-owned-instance",
+        model,
+      };
+    },
+    async releaseSession() {},
+  };
+
+  const manager = new FreebuffSessionManager();
+  const lease = await manager.acquire({
+    client,
+    token: "fixture-model-lock-token",
+    model: "deepseek/deepseek-v4-flash",
+  });
+
+  await assert.rejects(
+    manager.acquire({
+      client,
+      token: "fixture-model-lock-token",
+      model: "deepseek/deepseek-v4-pro",
+    }),
+    /model|switch|leased/i
+  );
+  assert.equal(admitCalls, 1);
+
+  await lease.release();
+  await manager.shutdown();
+});
+
+test("Freebuff session manager: credential keys share duplicate tokens but not refreshed generations", () => {
+  assert.equal(
+    freebuffCredentialKey("same-token"),
+    freebuffCredentialKey("same-token")
+  );
+  assert.notEqual(
+    freebuffCredentialKey("old-token"),
+    freebuffCredentialKey("new-token")
+  );
+  assert.doesNotMatch(freebuffCredentialKey("same-token"), /same-token/);
+});
+
+test("Freebuff session manager: idle release deletes only the owned instance", async () => {
+  const deletes: string[] = [];
+  const model = "deepseek/deepseek-v4-flash";
+
+  const client = {
+    async getSession() {
+      return { status: "none" as const };
+    },
+    async admitSession() {
+      return {
+        status: "active" as const,
+        instanceId: "fixture-owned-delete",
+        model,
+      };
+    },
+    async releaseSession(_token: string, instanceId: string) {
+      deletes.push(instanceId);
+    },
+  };
+
+  const manager = new FreebuffSessionManager({ idleReleaseMs: 0 });
+  const lease = await manager.acquire({
+    client,
+    token: "fixture-owned-delete-token",
+    model,
+  });
+  await lease.release();
+
+  assert.deepEqual(deletes, ["fixture-owned-delete"]);
+  await manager.shutdown();
+});
