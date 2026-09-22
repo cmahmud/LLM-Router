@@ -3,12 +3,12 @@ title: "LLM-Router: Project Status"
 lastUpdated: 2026-09-22
 ---
 
-# Status — architecture/audit milestone
+# Status — Packet 1 (P0) regression harness
 
-**Phase 1 source audit and design complete. Production implementation has not started.**
-READY FOR LUNA MAX for the ordered packets in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+**Phase 1 source audit and Packet 1 regression foundation are complete.** The Packet 1
+implementation commit is `540fab15984d8eee372e8783a04b09fe5e5c4405` on `dev`.
 Live FreeBuff-backed coding-client compatibility remains blocked by the access-contract question
-below. This document describes this docs-only milestone; it does not certify deployment readiness.
+below. This document does not certify deployment readiness.
 
 ## Completed
 
@@ -25,12 +25,19 @@ below. This document describes this docs-only milestone; it does not certify dep
 - Defined session ownership, per-request runs, streaming finalization, atomic model discovery,
   non-mutating auth checks and bounded tests/implementation packets.
 - Observed VPS aarch64, two CPUs, 11,924 MiB RAM and 193 GiB root filesystem. No router deployed.
+- Added credential-free synthetic protocol fixtures under `tests/fixtures/freebuff/`.
+- Added an injected-fetch harness under `tests/unit/helpers/freebuff-fixtures.ts` with deferred
+  response bodies, call capture, fixture loading and restoration of the global fetch.
+- Added deterministic P0 regressions for queued admission, missing instances, ignored START
+  failures, caller-overridable metadata, early FINISH, and raw admission-error leakage. These
+  assertions are intentionally red against the audited baseline and are the acceptance targets for
+  P1–P3.
 
 ## In progress
 
-No implementation packet is active. Next engineer starts P0, records permitted access evidence,
-and adds synthetic regressions before fixing behavior. Do not treat this document as authorization
-to bypass the explicit upstream restrictions described in the architecture.
+P1 is next: introduce the typed transport/error boundary, read-only credential validation and
+server-owned metadata. The P0 regressions remain the contract for that work. No live upstream
+credential or client identity was used.
 
 ## Known issues and constraints
 
@@ -40,7 +47,8 @@ to bypass the explicit upstream restrictions described in the architecture.
    coding-client compatibility, spoof identity, rename tools for evasion or simulate ad engagement.
 2. **Native defects:** legacy admission path; missing active-state validation; swallowed START
    failures; caller-overridable metadata; FINISH before stream completion; incomplete cleanup;
-   raw upstream error leakage; absent session coordination and provider deadlines.
+   raw upstream error leakage; absent session coordination and provider deadlines. Packet 1 now
+   records each of these as a deterministic regression.
 3. **Catalog:** nine static models, unknown-model fallback agent, unverified context/capability
    flags; generic model merging could preserve retired static rows without an explicit overlay.
 4. **Authentication:** validator creates a session; all 409s accepted, 403s misclassified. No
@@ -48,31 +56,30 @@ to bypass the explicit upstream restrictions described in the architecture.
 5. **Live environment:** conventional FreeBuff/Codebuff credential paths checked on the VPS and
    `~/.omniroute` were absent. This was a limited presence check, not an exhaustive credential search.
 6. **Inherited quality state:** upstream has open base-red issue #13866 for docs/env drift at a
-   different push range. Local baseline documentation gate attempted but stopped because dependencies
-   are absent (`readCodeFacts` could not load/run tsx); do not misreport that as a new docs defect.
+   different push range. Do not misreport that as a new FreeBuff defect.
 
 ## Tests and validation
 
 - GitHub source/ref/tree/license inspection: performed; source evidence only.
 - Exhaustive baseline content search on a pinned archive: performed; 147 matching files.
-- Full native/provider/integration suites: **not run**; application dependencies are not installed.
-- Live inference, Codex/Pi/OpenCode/Claude client tests, full build, native SQLite and production
-  runtime validation: **not run**. Reference projects' tests were inspected, not executed.
-- `npm run check:docs-all` on the untouched archive: attempted using a temporary isolated Node
-  v24.13.0 ARM64 runtime. Stopped at dependency-dependent docs count extraction (`tsx` missing).
-  Node's version satisfies the inherited engine requirement; no global runtime was installed.
-- Changed-document validation results are recorded in the final verification note below.
+- Packet 1 fixture schema and harness files were added through GitHub MCP.
+- The new lifecycle suite is expected to fail on the audited baseline by design; it was not run in
+  the dependency-free VPS audit directory. No live network call, token, cookie or personal identifier
+  was used.
+- Full native/provider/integration suites, full build, native SQLite and production runtime
+  validation: **not run**; application dependencies are not installed.
+- Live inference, Codex/Pi/OpenCode/Claude client tests and ARM64 deployment validation: **not run**.
+- The prior docs checks remain valid for the five Phase 1 documents; the Packet 1 status update
+  references only files that now exist.
 
 ## Next steps
 
-1. P0: establish a permitted upstream contract; add synthetic regressions and clearly label live
-   blockers. No secret needs to be pasted into chat or Git.
-2. P1: typed transport/errors, read-only credential validation and metadata ownership.
-3. P2: session/run leases, bounded concurrency, reconciliation and cleanup; architecture review.
-4. P3: lifecycle-aware streaming and real tool continuity through Chat.
-5. P4: official catalog parsing, authoritative listing/resolution and capability limits.
-6. P5: Responses/Anthropic gateway conformance and sanitized health; architecture review.
-7. P6: full gates, ARM64 build, permitted bounded live tests and reversible deployment.
+1. P1: typed transport/errors, read-only credential validation and metadata ownership.
+2. P2: session/run leases, bounded admission, reconciliation and truthful finalization.
+3. P3: lifecycle-aware streaming and real tool continuity through Chat.
+4. P4: official catalog parsing, authoritative listing/resolution and capability limits.
+5. P5: Responses/Anthropic gateway conformance and sanitized health; architecture review.
+6. P6: full gates, ARM64 build, permitted bounded live tests and reversible deployment.
 
 If no permitted FreeBuff interface is available, keep its live path blocked and use legitimate
 OmniRoute providers for coding clients. The architecture documents remain useful for safe offline
@@ -80,24 +87,16 @@ hardening and any future authorized integration; a bridge cannot solve permissio
 
 ## Deployment state
 
-**Not deployed; not ready for production FreeBuff use.** This milestone changes documentation only.
-Runtime code is still the audited baseline, with the defects above. No services, firewall rules,
-ports, proxy settings, DNS, credentials or MCP connectivity were changed.
+**Not deployed; not ready for production FreeBuff use.** Packet 1 adds fixtures and tests only.
+No services, firewall rules, ports, proxy settings, DNS, credentials or MCP connectivity changed.
+The VPS audit material remains isolated in `/home/ubuntu/projects/llm-router-audit-20260922/`; it
+is not an application checkout or running router. GitHub `dev` is the permanent project handoff.
 
-VPS audit material is isolated in `/home/ubuntu/projects/llm-router-audit-20260922/`: pinned baseline
-archive/extraction, reference inventory and temporary Node runtime for documentation checks. It is
-not an application checkout or a running router. GitHub `dev` is the permanent project handoff.
+## Packet 1 verification note
 
-## Final verification note
-
-Five documents validated against the pinned baseline. Independent documentation checks passed:
-`check:docs-frontmatter`, `check:env-doc-sync`, `check:deprecated-versions`, `check:doc-links`,
-and `check:fabricated-docs`. The deprecated-version checker retains the same 90 pre-existing
-warnings. The compiled-doc frontmatter gate excludes these root-level design docs, so their
-frontmatter and fenced blocks were also checked explicitly. Proposed filenames in the handoff
-are separated from existing-file claims; no gate allowlist or gate implementation was changed.
-Formatting checked with Prettier 3.9.6. No application test/build/live result is implied.
-
-The full `check:docs-all` aggregate remains blocked by missing application dependencies on the
-untouched baseline. The inherited issue is reported separately; the local environment failure
-is not evidence of a new code or documentation regression.
+The synthetic fixtures are explicitly marked and contain no live credentials, cookies, user content,
+or captured upstream responses. The harness uses injected fetch and a deferred Web Stream so later
+packets can assert call order, body lifetime, cancellation and cleanup without real network access.
+The current red assertions distinguish router behavior from the separate upstream restriction: they
+exercise only mocked transport shapes and make no claim that a valid token would grant permitted
+FreeBuff access.
