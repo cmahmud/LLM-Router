@@ -3,139 +3,93 @@ title: "LLM-Router: Project Status"
 lastUpdated: 2026-09-22
 ---
 
-# Status — Packet 2 (P1) transport, auth and metadata
+# Status — Packet 3 (P2) lifecycle validation checkpoint
 
-**Phase 1, Packet 1 regression fixtures, and Packet 2 transport/auth/metadata hardening are
-complete on `dev`.** Packet 2 is commit
-`ae6b7b51888f0642484a34f7d0a5e6e27d70cefc`.
+Phase 1 and Packets 1–2 remain complete on `dev`. The lifecycle/concurrency implementation is
+validated on the isolated `freebuff-p2-lifecycle` branch but is intentionally **not merged**.
+The validation branch head is `d9c59732ce91156076116699876958d7afad360f`; PR #1 remains draft and
+open against `dev` at `cb20bb8cb98b8f654aa104433a542a1c717a2af2`.
 
-The implementation still does **not** certify permitted live FreeBuff model access or production
-deployment readiness. No live FreeBuff credential was used.
+This checkpoint does not certify permitted live FreeBuff model access or production deployment.
 
 ## Completed
 
-### Phase 1 and Packet 1
+### Phase 1 and Packets 1–2
 
 - Preserved the pristine OmniRoute `release/v3.8.51` baseline.
 - Audited native routing, protocol translation, provider validation, FreeBuff behavior and relevant
   official upstream source.
 - Selected the native OmniRoute integration path rather than a sidecar/proxy rewrite.
-- Added credential-free synthetic FreeBuff fixtures and injected-fetch helpers.
-- Added deterministic regressions covering admission, run start, metadata integrity, stream
-  lifetime and error sanitization.
+- Added credential-free synthetic fixtures and injected-fetch helpers.
+- Added deterministic regressions for admission, run start, metadata integrity, stream lifetime and
+  error sanitization.
+- Added the typed transport/error boundary, dedicated admission path, read-only `/me` validation,
+  truthful START failure handling, reserved metadata protection and sanitized errors.
 
-### Packet 2 (P1)
+### Packet 3 candidate (P2)
 
-- Added a typed FreeBuff transport boundary under `open-sse/executors/freebuff/`:
-  - bounded JSON reads;
-  - Zod validation for admission, run-start and read-only user-probe responses;
-  - explicit timeout, caller-abort, network, auth, forbidden, rate-limit, malformed-response and
-    upstream-error classification;
-  - `Retry-After` preservation;
-  - the dedicated `/api/v1/freebuff/session/admission` endpoint with wallet spend limit zero;
-  - fail-closed behavior for servers that do not expose the dedicated admission endpoint.
-- Removed the hard-coded `codebuff/0.1.0 (darwin-arm64)` identity from FreeBuff requests.
-- Removed the executor's Buffy system-prompt injection; valid caller content/tools are preserved
-  instead of being modified to imitate a first-party client.
-- Fixed session admission validation:
-  - only a validated `status: "active"` response with a non-empty instance ID may advance;
-  - legacy/malformed `state: "queued"`-shaped data fails closed;
-  - typed current admission refusals remain distinct from malformed transport responses.
-- Fixed run-start handling:
-  - non-2xx START responses stop before chat dispatch;
-  - malformed 2xx responses without a valid `runId` stop before chat dispatch.
-- Hardened metadata ownership. Client metadata is preserved only for non-reserved keys; internal
-  run/session/client/lifecycle/credit fields cannot overwrite router-owned values.
-- Replaced mutating credential validation with read-only
-  `GET /api/v1/me?fields=id`.
-- Credential validation now distinguishes authentication failure, forbidden access, rate limiting,
-  timeout/network failure and malformed successful responses without reflecting raw upstream bodies.
-- Pre-stream chat failures are now surfaced through OmniRoute's structured/sanitized error envelope.
-- Confirmed the existing OmniRoute request-scoped proxy context wraps provider execution, so the new
-  transport inherits configured connection egress rather than introducing a second proxy layer.
+- Added credential-fingerprint session ownership with single-flight admission.
+- Added bounded scheduling: one active completion per credential, two globally and eight queued.
+- Added caller-independent cancellation for shared admission and FIFO scheduling within a credential.
+- Added reconciliation for ambiguous admission outcomes without blind POST retries.
+- Refused takeover of unowned active sessions and model switches while a lease is live.
+- Added owned-instance-only idle release, cleanup/reacquire serialization, cleanup-failure reconciliation
+  and bounded shutdown.
+- Added finalize-once run handles and delayed FINISH until the response body reaches a terminal state.
+- Added regression coverage for cleanup/reacquire races, zero-idle admission, leader cancellation,
+  run cancellation and concurrency limits.
 
-## Current incomplete packet
+## Validation gate
 
-Packet 3 (P2) — session/run lifecycle and concurrency — is next.
+The branch was checked in a detached worktree on the ARM64 VPS using the existing
+`v24.13.0-linux-arm64` runtime and a read-only symlink to the already-installed project dependencies.
 
-The remaining acceptance failure is intentional and isolated: a successful chat response still
-schedules FINISH as soon as response headers arrive. Packet 3 must make completion follow the actual
-body/stream lifecycle and add session coordination, cleanup and concurrency control.
+- Focused FreeBuff command:
+  `node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/unit/freebuff-provider.test.ts tests/unit/freebuff-transport.test.ts tests/unit/freebuff-session-manager.test.ts tests/unit/freebuff-run-manager.test.ts tests/unit/freebuff-concurrency.test.ts tests/unit/freebuff-executor-lifecycle.test.ts`
+  - **42 passed, 0 failed**.
+- Open-SSE typecheck: `npm run check:open-sse-typecheck`
+  - **0 errors; pass**.
+- Core typecheck: `npm run typecheck:core`
+  - **pass**.
+- Targeted ESLint on all changed lifecycle/FreeBuff files:
+  - **pass**.
+- Prettier check on all changed lifecycle/FreeBuff files:
+  - **pass**.
+- `git diff --check origin/dev...origin/freebuff-p2-lifecycle`
+  - **pass** after the validation commit.
+- One timing-sensitive zero-idle regression initially failed because the test observed immediately before
+  the scheduled cleanup timer ran. The test now waits for the documented deferred cleanup task; the
+  rerun is the 42/42 result above. No live behavior or access-control workaround was added.
 
-## Known issues and constraints
-
-1. **Permitted access remains unresolved.** Current official FreeBuff behavior detects/downgrades
-   some third-party coding clients. This project will not spoof an approved client, rename tools for
-   evasion, bypass access controls, evade quotas or claim requested-model fidelity without permitted
-   upstream behavior.
-2. **Lifecycle remains incomplete.** Session reuse/invalidation, stale-session handling, shared-state
-   coordination, disconnect cleanup and finalization after body/stream completion belong to Packet 3.
-3. **Streaming/tool continuity remains incomplete.** SSE termination, cancellation after headers,
-   tool-call delta assembly, multi-tool continuation and reasoning stream fidelity belong to Packet 4.
-4. **Catalog remains static.** Authoritative model discovery/capability handling belongs to Packet 5.
-5. **Protocol conformance remains unverified.** Responses and Anthropic end-to-end behavior plus
-   health reporting belong to Packet 6.
-6. **ARM64 deployment is not yet validated.** The VPS has been used for development/runtime tests,
-   but service install/start/restart/resource validation belongs to Packet 7.
-
-## Tests and validation
-
-Packet 2 was exercised on the ARM64 VPS using the isolated Node
-`v24.13.0-linux-arm64` runtime already present from the audit.
-
-- Packet 2 focused tests:
-  - command:
-    `node --import tsx/esm --test tests/unit/freebuff-provider.test.ts tests/unit/freebuff-transport.test.ts`
-  - result: **17 passed, 0 failed**.
-- Packet 1 lifecycle acceptance suite after Packet 2:
-  - combined focused run: **23 passed, 1 failed** across 24 tests;
-  - the only failure is
-    `Freebuff P0 regression: FINISH waits for body consumption`;
-  - that failure is the explicit Packet 3 target, not a Packet 2 regression.
-- Open-SSE TypeScript regression gate:
-  - `npm run check:open-sse-typecheck`
-  - result: **0 errors; pass**.
-- Core TypeScript:
-  - `npm run typecheck:core`
-  - result: **pass**.
-- Targeted ESLint on changed TypeScript files using the repository suppression file:
-  - result: **pass**.
-- Prettier and `git diff --check`:
-  - result: **pass**.
-- Staged diff secret-pattern check:
-  - no API keys, bearer tokens or private-key material detected.
-
-### Live behavior
+## Live behavior and limitations
 
 - Live FreeBuff inference: **not performed**.
 - Live credential validation: **not performed**.
-- Live requested-model fidelity: **not verified**.
+- Requested-model fidelity and third-party coding-client compatibility: **not verified**.
 - No token, cookie, session secret, auth file or personal identifier was committed.
 - No service, firewall, DNS, port or proxy configuration was changed on the VPS.
+- The official upstream restriction on foreign-client signals remains a real feasibility boundary;
+  this branch does not spoof identity, rename tools, simulate engagement, bypass quotas or rotate
+  accounts/IPs to evade restrictions.
+
+## Current incomplete packet
+
+Packet 4 (P3) remains open: pull-based SSE lifetime/error handling, cancellation after headers,
+tool-call continuity, malformed/truncated stream behavior and integration coverage through Chat.
+
+Packets 5–7 remain open for catalog discovery, Responses/Anthropic conformance and health, then ARM64
+build/runtime/deployment validation.
 
 ## Current blocker
 
-There is no implementation blocker for Packet 3.
-
-The only external blocker is for later live FreeBuff claims: a permitted third-party integration
-contract that allows the required client/protocol behavior has not been established. If legitimate
-access cannot provide a requested model, the router must report/degrade that condition accurately
-rather than bypassing the restriction.
-
-## Next tasks
-
-1. Packet 3 (P2): session/run lifecycle, bounded coordination, stale-session behavior, truthful
-   completion, cancellation/disconnect cleanup and concurrency tests.
-2. Packet 4 (P3): lifecycle-aware streaming, SSE correctness, cancellation and tool continuity.
-3. Packet 5 (P4): authoritative model discovery and conservative cache/fallback behavior.
-4. Packet 6 (P5): Chat/Responses/Anthropic conformance and sanitized provider health.
-5. Packet 7 (P6): Linux ARM64 build/runtime/service validation and deployment documentation.
+There is no local implementation blocker for the next offline packet. The external blocker for any
+later live FreeBuff claim is a permitted third-party integration contract that allows the required
+client/protocol behavior. If legitimate access cannot provide a requested model, the router must
+report or degrade that condition accurately rather than bypassing the restriction.
 
 ## Deployment state
 
-**Not deployed and not production-ready for FreeBuff.**
-
-Packet 2 is a stable, tested router milestone on `dev`, but the lifecycle, streaming/tool,
-discovery, protocol-conformance and deployment packets remain open. The VPS checkout at
-`/home/ubuntu/projects/llm-router-dev` is a development/test working tree; GitHub `dev` is the
-permanent source of truth.
+**Not deployed and not production-ready for FreeBuff.** The lifecycle branch is a tested candidate for
+review, not an authorization to merge or deploy. The primary VPS checkout at
+`/home/ubuntu/projects/llm-router-dev` remains clean on `dev`; validation ran in the separate
+`/home/ubuntu/projects/llm-router-p2-validation` worktree. GitHub remains the durable source of truth.
