@@ -9,8 +9,9 @@ Phase 1 and Packets 1–2 remain complete on `dev`. The validated P2 lifecycle c
 `afe024054bdc1d0513a49228142d7df77c95813b` on `freebuff-p2-lifecycle`; PR #1 remains draft,
 open and unmerged against `dev` at `cb20bb8cb98b8f654aa104433a542a1c717a2af2`. This P3
 candidate is isolated on `freebuff-p3-streaming`, based exactly on that validated head, with
-implementation commit `3111a6f3a2942f111107aa17d414c05ed1405f9d` plus the cleanup fix
-`c55000455bdb79cf1fba30d991da09ee7267aba7`.
+implementation commit `3111a6f3a2942f111107aa17d414c05ed1405f9d`, cleanup fix
+`c55000455bdb79cf1fba30d991da09ee7267aba7` and cancellation regression test
+`4a54022581e11cbd8c9c3c11a977e3a3c0754c2b`.
 
 This checkpoint does not certify permitted live FreeBuff model access or production deployment.
 
@@ -48,7 +49,7 @@ The branch was checked in a detached worktree on the ARM64 VPS using the existin
 
 - Focused FreeBuff command:
   `node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/unit/freebuff-provider.test.ts tests/unit/freebuff-transport.test.ts tests/unit/freebuff-session-manager.test.ts tests/unit/freebuff-run-manager.test.ts tests/unit/freebuff-concurrency.test.ts tests/unit/freebuff-executor-lifecycle.test.ts tests/unit/freebuff-stream.test.ts`
-  - **53 passed, 0 failed** on ARM64.
+  - **54 passed, 0 failed** on ARM64.
 - Open-SSE typecheck: `npm run check:open-sse-typecheck`
   - **0 errors; pass**.
 - Core typecheck: `npm run typecheck:core`
