@@ -88,7 +88,6 @@ Published P5 commit checkpoints:
 - Implementation: `0b2901ef54819994cfcd517995c7dd06ca463874`.
 - Documentation checkpoint: `1a0db5eda721d3a3248063bdf119c93b9e3b1a1b`.
 
-
 - Offline route fixtures exercise OpenAI Chat Completions JSON and SSE, OpenAI Responses
   instructions/input conversion, and Anthropic Messages content blocks.
 - Tool continuity is checked through the gateway: Chat tool-call IDs/names/results and Anthropic
