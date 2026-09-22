@@ -129,3 +129,17 @@ Capabilities are evidence-only: unknown tool, video, context and Responses suppo
 **Alternative:** a permanently hard-coded table, a third-party model API, regex/evaluation of arbitrary
 upstream TypeScript, or remote discovery on every inference. These were rejected because they either
 drift, are not authoritative, widen the trust boundary, or add latency/race risk on the 2-core VPS.
+
+## D11 — Shared protocol translators; passive provider health
+
+P5 reuses OmniRoute's existing OpenAI Chat, OpenAI Responses, and Anthropic Messages translators
+and route admission rather than introducing a FreeBuff-specific protocol stack. Offline route
+fixtures prove the conversion boundary and tool-call continuity while leaving provider-wire
+behavior owned by the existing FreeBuff executor.
+
+FreeBuff health is exposed through an Open-SSE service boundary as a sanitized in-memory snapshot.
+It reports catalog provenance, scheduler/session counts, bounded latency and classified error
+counters without acquiring sessions or probing the upstream. This keeps monitoring cheap on the
+2-core ARM64 VPS and avoids turning a health request into an inference or access-control event.
+Capabilities remain source-evidence-only; unverified Responses/background/stateful/WebSocket,
+tool, audio/video, and context support is omitted rather than advertised.
