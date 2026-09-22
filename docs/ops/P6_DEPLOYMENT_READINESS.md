@@ -126,7 +126,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/projects/llm-router-dev/.claude/p6-runtime/<commit-sha>
 EnvironmentFile=/home/ubuntu/projects/llm-router-dev/.claude/p6-env/router.env
-ExecStart=/usr/bin/node /home/ubuntu/projects/llm-router-dev/.claude/p6-runtime/<commit-sha>/dev/run-standalone.mjs
+ExecStart=/path/to/node-v24.13.0-linux-arm64/bin/node /home/ubuntu/projects/llm-router-dev/.claude/p6-runtime/<commit-sha>/dev/run-standalone.mjs
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15
@@ -137,6 +137,8 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 ```
 
+Replace the node path with the resolved, version-checked ARM64 binary from
+the install step; do not silently use an unverified system Node binary.
 Review the resolved path, user, ports, environment, and `DATA_DIR` before
 activation. Never share the MCP port or production data directory.
 
