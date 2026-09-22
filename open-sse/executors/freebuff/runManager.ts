@@ -135,7 +135,6 @@ export class FreebuffRunHandle {
       },
     });
 
-
     return new Response(body, {
       status: response.status,
       statusText: response.statusText,
