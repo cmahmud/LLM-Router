@@ -10,8 +10,9 @@ Phase 1 and Packets 1–2 remain complete on `dev`. The validated P2 lifecycle c
 open and unmerged against `dev` at `cb20bb8cb98b8f654aa104433a542a1c717a2af2`. This P3
 candidate is isolated on `freebuff-p3-streaming`, based exactly on that validated head, with
 implementation commit `3111a6f3a2942f111107aa17d414c05ed1405f9d`, cleanup fix
-`c55000455bdb79cf1fba30d991da09ee7267aba7` and cancellation regression test
-`4a54022581e11cbd8c9c3c11a977e3a3c0754c2b`.
+`c55000455bdb79cf1fba30d991da09ee7267aba7`, cancellation regression test
+`4a54022581e11cbd8c9c3c11a977e3a3c0754c2b` and expiry guard
+`2ae11c918e117ee83ab6b7348a648759a6714f91`.
 
 This checkpoint does not certify permitted live FreeBuff model access or production deployment.
 
@@ -36,8 +37,8 @@ This checkpoint does not certify permitted live FreeBuff model access or product
 - Added caller-independent cancellation for shared admission and FIFO scheduling within a credential.
 - Added reconciliation for ambiguous admission outcomes without blind POST retries.
 - Refused takeover of unowned active sessions and model switches while a lease is live.
-- Added owned-instance-only idle release, cleanup/reacquire serialization, cleanup-failure reconciliation
-  and bounded shutdown.
+- Added owned-instance-only idle release, cleanup/reacquire serialization, cleanup-failure reconciliation,
+  expiry-while-leased refusal and bounded shutdown.
 - Added finalize-once run handles and delayed FINISH until the response body reaches a terminal state.
 - Added regression coverage for cleanup/reacquire races, zero-idle admission, leader cancellation,
   run cancellation and concurrency limits.
@@ -49,7 +50,7 @@ The branch was checked in a detached worktree on the ARM64 VPS using the existin
 
 - Focused FreeBuff command:
   `node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/unit/freebuff-provider.test.ts tests/unit/freebuff-transport.test.ts tests/unit/freebuff-session-manager.test.ts tests/unit/freebuff-run-manager.test.ts tests/unit/freebuff-concurrency.test.ts tests/unit/freebuff-executor-lifecycle.test.ts tests/unit/freebuff-stream.test.ts`
-  - **54 passed, 0 failed** on ARM64.
+  - **55 passed, 0 failed** on ARM64.
 - Open-SSE typecheck: `npm run check:open-sse-typecheck`
   - **0 errors; pass**.
 - Core typecheck: `npm run typecheck:core`
