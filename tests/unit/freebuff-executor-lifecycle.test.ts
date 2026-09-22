@@ -141,7 +141,7 @@ test("Freebuff P0 regression: server-owned metadata cannot be overridden by call
   ]);
 
   const execution = await withFreebuffFetch(fetchMock, () =>
-    new FreebuffExecutor().execute({ ...BASE_INPUT, body } as never)
+    new FreebuffExecutor().execute({ ...BASE_INPUT, body, stream: false } as never)
   );
 
   const chat = callFor(calls, "/api/v1/chat/completions");

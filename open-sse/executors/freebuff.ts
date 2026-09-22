@@ -149,6 +149,7 @@ export class FreebuffExecutor extends BaseExecutor {
       return {
         response: runHandle.bindResponse(response, {
           signal: heldPermit.signal,
+          protocol: stream === false ? "json" : "sse",
           onSettled: () => releaseLocalResources(heldLease, heldPermit),
         }),
       };

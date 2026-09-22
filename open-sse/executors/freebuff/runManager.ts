@@ -1,4 +1,6 @@
 import type { FreebuffClient } from "./client.ts";
+import { wrapFreebuffResponse, type FreebuffResponseProtocol } from "./responseStream.ts";
+import type { FreebuffResponseSettlement } from "./responseStream.ts";
 
 export type FreebuffRunClient = Pick<FreebuffClient, "startRun" | "finishRun">;
 
@@ -6,8 +8,19 @@ export type FreebuffRunStatus = "completed" | "failed" | "cancelled";
 
 export type BindFreebuffResponseOptions = {
   signal?: AbortSignal | null;
+  protocol?: FreebuffResponseProtocol;
   onSettled?: () => Promise<void> | void;
 };
+
+function responseProtocol(response: Response): FreebuffResponseProtocol {
+  return response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")
+    ? "sse"
+    : "json";
+}
+
+function mapSettlement(status: FreebuffResponseSettlement): FreebuffRunStatus {
+  return status;
+}
 
 export class FreebuffRunHandle {
   readonly runId: string;
@@ -35,103 +48,24 @@ export class FreebuffRunHandle {
   }
 
   bindResponse(response: Response, options: BindFreebuffResponseOptions = {}): Response {
-    const reader = response.body?.getReader();
     let settled: Promise<void> | null = null;
-    let controllerClosed = false;
-    let abortListener: (() => void) | null = null;
 
-    const settle = (status: FreebuffRunStatus): Promise<void> => {
+    const settle = (status: FreebuffResponseSettlement): Promise<void> => {
       if (settled) return settled;
       settled = (async () => {
         try {
-          await this.finalize(status);
+          await this.finalize(mapSettlement(status));
         } finally {
-          try {
-            await options.onSettled?.();
-          } finally {
-            if (abortListener && options.signal) {
-              options.signal.removeEventListener("abort", abortListener);
-            }
-          }
+          await options.onSettled?.();
         }
       })();
       return settled;
     };
 
-    if (!reader) {
-      const body = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          await settle("completed");
-          controller.close();
-        },
-      });
-      return new Response(body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    }
-
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        if (!options.signal) return;
-        abortListener = () => {
-          const reason =
-            options.signal?.reason ?? new DOMException("Freebuff response aborted", "AbortError");
-          void reader.cancel(reason).catch(() => {});
-          void settle("cancelled").finally(() => {
-            if (controllerClosed) return;
-            controllerClosed = true;
-            try {
-              controller.error(reason);
-            } catch {}
-          });
-        };
-
-        if (options.signal.aborted) {
-          abortListener();
-        } else {
-          options.signal.addEventListener("abort", abortListener, {
-            once: true,
-          });
-        }
-      },
-
-      async pull(controller) {
-        if (settled || controllerClosed) return;
-        try {
-          const { done, value } = await reader.read();
-          if (done) {
-            await settle(options.signal?.aborted ? "cancelled" : "completed");
-            if (!controllerClosed) {
-              controllerClosed = true;
-              controller.close();
-            }
-            return;
-          }
-          controller.enqueue(value);
-        } catch (error) {
-          await settle(options.signal?.aborted ? "cancelled" : "failed");
-          if (!controllerClosed) {
-            controllerClosed = true;
-            controller.error(error);
-          }
-        }
-      },
-
-      async cancel(reason) {
-        try {
-          await reader.cancel(reason);
-        } finally {
-          await settle("cancelled");
-        }
-      },
-    });
-
-    return new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
+    return wrapFreebuffResponse(response, {
+      protocol: options.protocol ?? responseProtocol(response),
+      signal: options.signal,
+      onSettled: (status) => settle(status),
     });
   }
 }
