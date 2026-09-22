@@ -143,3 +143,14 @@ counters without acquiring sessions or probing the upstream. This keeps monitori
 2-core ARM64 VPS and avoids turning a health request into an inference or access-control event.
 Capabilities remain source-evidence-only; unverified Responses/background/stateful/WebSocket,
 tool, audio/video, and context support is omitted rather than advertised.
+
+
+## D12 — Versioned offline candidate; no implicit activation
+
+P6 selects a versioned standalone candidate on the ARM64 VPS with SQLite data and
+operator secrets outside the release tree. The candidate is validated on a
+loopback-only unused port and can be started/stopped independently of MCP or
+production routing. A reviewed systemd unit may be prepared, but P6 does not
+enable or start it. Rollback selects a prior immutable candidate and restores a
+transaction-consistent data snapshot only when an operator approves it; no
+destructive migration or public proxy change is part of this packet.
