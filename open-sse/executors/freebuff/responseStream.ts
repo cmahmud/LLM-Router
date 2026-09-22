@@ -334,6 +334,8 @@ export function wrapFreebuffResponse(
         controller.enqueue(value);
         if (parser) parser.push(value);
       } catch (error) {
+        // Stop pulling the upstream body once protocol validation or decoding fails.
+        await reader.cancel(error).catch(() => {});
         try {
           await settle(
             cancellationRequested || options.signal?.aborted ? "cancelled" : "failed",
