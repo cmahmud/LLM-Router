@@ -152,6 +152,15 @@ export class FreebuffSessionManager {
       return this.createLease(accountKey, record, owned);
     }
 
+    // Never lease an instance while an owned DELETE is still in flight.
+    // Once cleanup settles, re-enter acquisition so the post-cleanup state is
+    // reconciled instead of returning an instance that may already be gone.
+    if (record.cleanupPromise) {
+      await waitForShared(record.cleanupPromise, params.signal);
+      if (this.closed) throw closedError();
+      return this.acquire(params);
+    }
+
     if (record.owned) {
       if (record.owned.model !== params.model) {
         if (record.leaseCount > 0) {
@@ -219,7 +228,10 @@ export class FreebuffSessionManager {
       }
       record.owned = owned;
       if (record.leaseCount === 0) {
-        await this.scheduleIdleRelease(record);
+        // A successful transition may still have callers waiting to turn the
+        // shared result into a lease. For a zero idle timeout, defer cleanup
+        // one task so those waiters get a chance to claim the session first.
+        await this.scheduleIdleRelease(record, true);
       }
       return owned;
     })();
@@ -409,11 +421,14 @@ export class FreebuffSessionManager {
     };
   }
 
-  private async scheduleIdleRelease(record: SessionRecord): Promise<void> {
+  private async scheduleIdleRelease(
+    record: SessionRecord,
+    deferZero = false
+  ): Promise<void> {
     this.clearIdleTimer(record);
     if (!record.owned) return;
 
-    if (this.idleReleaseMs <= 0) {
+    if (this.idleReleaseMs <= 0 && !deferZero) {
       await this.releaseOwned(record);
       return;
     }
@@ -422,7 +437,7 @@ export class FreebuffSessionManager {
       record.idleTimer = undefined;
       if (record.leaseCount !== 0) return;
       void this.releaseOwned(record).catch(() => {});
-    }, this.idleReleaseMs);
+    }, Math.max(0, this.idleReleaseMs));
   }
 
   private clearIdleTimer(record: SessionRecord): void {
@@ -442,6 +457,15 @@ export class FreebuffSessionManager {
         if (record.owned?.instanceId === owned.instanceId) {
           record.owned = undefined;
         }
+      })
+      .catch((error) => {
+        if (record.owned?.instanceId === owned.instanceId) {
+          // Cleanup failures are ambiguous: the upstream may have processed
+          // DELETE even if the response was lost. Force reconciliation before
+          // this instance can ever be leased again.
+          record.owned.expiresAtMs = 0;
+        }
+        throw error;
       })
       .finally(() => {
         if (record.cleanupPromise === cleanup) {
