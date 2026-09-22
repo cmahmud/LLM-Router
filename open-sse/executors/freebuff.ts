@@ -82,8 +82,14 @@ export class FreebuffExecutor extends BaseExecutor {
     let sessionLease: FreebuffSessionLease | null = null;
     let runHandle: FreebuffRunHandle | null = null;
     let phase: "admission" | "session" | "run" | "chat" = "admission";
-    let failed = false;
+    let requestResultRecorded = false;
     const requestStartedAtMs = Date.now();
+
+    const recordRequestResult = (outcome: "success" | "failure"): void => {
+      if (requestResultRecorded) return;
+      requestResultRecorded = true;
+      recordFreebuffRequestResult(outcome, Date.now() - requestStartedAtMs);
+    };
 
     try {
       permit = await runtime.scheduler.acquire(freebuffCredentialKey(token), signal);
@@ -114,11 +120,11 @@ export class FreebuffExecutor extends BaseExecutor {
       });
 
       if (!upstreamBody) {
-        failed = true;
         await runHandle.finalize("failed");
         await releaseLocalResources(sessionLease, permit);
         sessionLease = null;
         permit = null;
+        recordRequestResult("failure");
         return {
           response: freebuffInvalidRequest("Freebuff request body must be a JSON object"),
         };
@@ -134,22 +140,19 @@ export class FreebuffExecutor extends BaseExecutor {
       });
 
       if (!response.ok) {
-        failed = true;
-        recordFreebuffPhaseError("chat", {
-          kind: response.status >= 500 ? "upstream" : "auth",
-        });
+        const upstreamError = freebuffUpstreamStatusError(
+          "chat completion",
+          response.status,
+          parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
+        );
+        recordFreebuffPhaseError("chat", upstreamError);
         await runHandle.finalize("failed");
         await releaseLocalResources(sessionLease, permit);
         sessionLease = null;
         permit = null;
+        recordRequestResult("failure");
         return {
-          response: freebuffErrorResponse(
-            freebuffUpstreamStatusError(
-              "chat completion",
-              response.status,
-              parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
-            )
-          ),
+          response: freebuffErrorResponse(upstreamError),
         };
       }
 
@@ -162,12 +165,20 @@ export class FreebuffExecutor extends BaseExecutor {
         response: runHandle.bindResponse(response, {
           signal: heldPermit.signal,
           protocol: stream === false ? "json" : "sse",
-          onSettled: () => releaseLocalResources(heldLease, heldPermit),
+          onSettled: async (status, error) => {
+            if (status !== "completed") {
+              recordFreebuffPhaseError(
+                "chat",
+                error ?? { kind: status === "cancelled" ? "aborted" : "malformed" }
+              );
+            }
+            recordRequestResult(status === "completed" ? "success" : "failure");
+            await releaseLocalResources(heldLease, heldPermit);
+          },
         }),
       };
     } catch (error) {
-      failed = true;
-      if (phase === "run" || phase === "chat") {
+      if (phase === "admission" || phase === "run" || phase === "chat") {
         recordFreebuffPhaseError(phase, error);
       }
       const freebuffError = unexpectedFreebuffError("request", error);
@@ -176,12 +187,11 @@ export class FreebuffExecutor extends BaseExecutor {
         await runHandle.finalize(freebuffError.kind === "aborted" ? "cancelled" : "failed");
       }
       await releaseLocalResources(sessionLease, permit);
+      recordRequestResult("failure");
 
       return {
         response: freebuffErrorResponse(freebuffError),
       };
-    } finally {
-      recordFreebuffRequestResult(failed ? "failure" : "success", Date.now() - requestStartedAtMs);
     }
   }
 }

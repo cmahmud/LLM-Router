@@ -39,6 +39,9 @@ type ProtocolPayload = {
   }>;
   output?: Array<{
     type?: string;
+    call_id?: string;
+    name?: string;
+    arguments?: string;
     content?: Array<ProtocolContentBlock>;
   }>;
   content?: Array<ProtocolContentBlock>;
@@ -100,6 +103,43 @@ function toolCallResponse(): Response {
       },
     ],
     usage: { prompt_tokens: 7, completion_tokens: 4, total_tokens: 11 },
+  });
+}
+
+function multiToolCallResponse(): Response {
+  return jsonResponse({
+    id: "chatcmpl_p5_multi_tool",
+    object: "chat.completion",
+    model: "deepseek/deepseek-v4-flash",
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_p5_weather",
+              type: "function",
+              function: {
+                name: "lookup_weather",
+                arguments: JSON.stringify({ city: "Dhaka" }),
+              },
+            },
+            {
+              id: "call_p5_time",
+              type: "function",
+              function: {
+                name: "lookup_time",
+                arguments: JSON.stringify({ city: "Dhaka" }),
+              },
+            },
+          ],
+        },
+        finish_reason: "tool_calls",
+      },
+    ],
+    usage: { prompt_tokens: 9, completion_tokens: 6, total_tokens: 15 },
   });
 }
 
@@ -495,4 +535,113 @@ test("P5 health snapshot is sanitized and does not perform network work", () => 
   assert.equal("instanceId" in snapshot, false);
   assert.equal("token" in snapshot, false);
   assert.equal("warning" in snapshot.requests, false);
+});
+
+test("P5 Responses preserves named tool choice and multiple call/result IDs across turns", async () => {
+  const mock = createFreebuffMock((body) =>
+    Array.isArray(body.messages) &&
+    body.messages.some((message) => (message as { role?: unknown })?.role === "tool")
+      ? chatResponse("both tool results accepted")
+      : multiToolCallResponse()
+  );
+  mock.install();
+
+  const tools = [
+    {
+      type: "function",
+      name: "lookup_weather",
+      description: "look up weather",
+      parameters: { type: "object", properties: { city: { type: "string" } } },
+    },
+    {
+      type: "function",
+      name: "lookup_time",
+      description: "look up local time",
+      parameters: { type: "object", properties: { city: { type: "string" } } },
+    },
+  ];
+  const first = await responsesRoute.POST(
+    buildRequest({
+      url: "http://localhost/v1/responses",
+      body: {
+        model: "fb/deepseek/deepseek-v4-flash",
+        input: "Use both tools.",
+        tools,
+        tool_choice: { type: "function", name: "lookup_weather" },
+        stream: false,
+      },
+    })
+  );
+  assert.equal(first.status, 200);
+  const firstPayload = (await first.json()) as ProtocolPayload;
+  const calls = firstPayload.output?.filter((item) => item.type === "function_call") ?? [];
+  assert.deepEqual(
+    calls.map((item) => [item.call_id, item.name]),
+    [
+      ["call_p5_weather", "lookup_weather"],
+      ["call_p5_time", "lookup_time"],
+    ]
+  );
+  assert.deepEqual(mock.chatBodies[0].tool_choice, {
+    type: "function",
+    function: { name: "lookup_weather" },
+  });
+
+  const second = await responsesRoute.POST(
+    buildRequest({
+      url: "http://localhost/v1/responses",
+      body: {
+        model: "fb/deepseek/deepseek-v4-flash",
+        input: [
+          { role: "user", content: [{ type: "input_text", text: "Use both tools." }] },
+          {
+            type: "function_call",
+            call_id: "call_p5_weather",
+            name: "lookup_weather",
+            arguments: JSON.stringify({ city: "Dhaka" }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_p5_time",
+            name: "lookup_time",
+            arguments: JSON.stringify({ city: "Dhaka" }),
+          },
+          {
+            type: "function_call_output",
+            call_id: "call_p5_weather",
+            output: "31C",
+          },
+          {
+            type: "function_call_output",
+            call_id: "call_p5_time",
+            output: "15:30",
+          },
+        ],
+        tools,
+        stream: false,
+      },
+    })
+  );
+  assert.equal(second.status, 200);
+  const secondPayload = (await second.json()) as ProtocolPayload;
+  assert.match(String(secondPayload.output?.[0]?.content?.[0]?.text), /both tool results accepted/);
+
+  const forwarded = mock.chatBodies[1].messages as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    (
+      forwarded.find((message) => message.role === "assistant")?.tool_calls as Array<{
+        id?: string;
+      }>
+    ).map((call) => call.id),
+    ["call_p5_weather", "call_p5_time"]
+  );
+  assert.deepEqual(
+    forwarded
+      .filter((message) => message.role === "tool")
+      .map((message) => [message.tool_call_id, message.content]),
+    [
+      ["call_p5_weather", "31C"],
+      ["call_p5_time", "15:30"],
+    ]
+  );
 });

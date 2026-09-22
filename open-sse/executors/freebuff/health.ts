@@ -36,6 +36,8 @@ function sanitizeKind(error: unknown): string {
   const candidate = (error as { kind?: unknown } | null)?.kind;
   if (
     candidate === "auth" ||
+    candidate === "forbidden" ||
+    candidate === "rate_limit" ||
     candidate === "upstream" ||
     candidate === "network" ||
     candidate === "timeout" ||
@@ -43,6 +45,13 @@ function sanitizeKind(error: unknown): string {
     candidate === "malformed"
   ) {
     return candidate;
+  }
+
+  const structured = error as { name?: unknown; code?: unknown } | null;
+  if (structured?.name === "AbortError") return "aborted";
+  if (structured?.code === "upstream_error") return "upstream";
+  if (structured?.code === "malformed" || structured?.code === "missing_terminal") {
+    return "malformed";
   }
   return "unknown";
 }
@@ -55,7 +64,7 @@ export function recordFreebuffPhaseError(phase: FreebuffHealthPhase, error: unkn
   state.lastErrorAtMs = Date.now();
 }
 
-/** Record request admission/dispatch latency; response-body terminal state is tracked by P3. */
+/** Record one request at terminal lifecycle settlement, including full response-body latency. */
 export function recordFreebuffRequestResult(
   outcome: "success" | "failure",
   latencyMs: number

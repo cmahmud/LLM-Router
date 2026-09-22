@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
 
 import { FreebuffExecutor } from "../../open-sse/executors/freebuff.ts";
-import { resetSharedFreebuffRuntimeForTests } from "../../open-sse/executors/freebuff/runtime.ts";
+import {
+  getSharedFreebuffRuntime,
+  resetSharedFreebuffRuntimeForTests,
+} from "../../open-sse/executors/freebuff/runtime.ts";
+import {
+  __resetFreebuffHealthForTests,
+  getFreebuffHealthSnapshot,
+} from "../../open-sse/executors/freebuff/health.ts";
+import { getFreebuffCatalogSnapshot } from "../../open-sse/executors/freebuff/catalog.ts";
 import {
   createFreebuffFetchMock,
   deferredFreebuffResponse,
@@ -11,7 +19,10 @@ import {
   withFreebuffFetch,
 } from "./helpers/freebuff-fixtures.ts";
 
-afterEach(() => resetSharedFreebuffRuntimeForTests());
+afterEach(() => {
+  resetSharedFreebuffRuntimeForTests();
+  __resetFreebuffHealthForTests();
+});
 
 const CREDENTIALS = { apiKey: "fixture-token-only-in-memory" };
 const BASE_INPUT = {
@@ -229,4 +240,85 @@ test("Freebuff P0 regression: missing admission errors are sanitized", async () 
 
   assert.equal(result.response.status, 502);
   assert.doesNotMatch(responseBody.error?.message || "", /synthetic upstream diagnostic/);
+});
+
+function healthSnapshot() {
+  return getFreebuffHealthSnapshot({
+    configured: true,
+    runtime: getSharedFreebuffRuntime(),
+    catalog: getFreebuffCatalogSnapshot(),
+  });
+}
+
+function createLifecycleFetchMock(chatResponse: Response) {
+  return createFreebuffFetchMock([
+    {
+      match: /freebuff\/session\/admission$/,
+      response: freebuffFixtureResponse("session-admission-active.json"),
+    },
+    {
+      match: (call) =>
+        call.url.endsWith("/api/v1/agent-runs") &&
+        (call.bodyJson as { action?: string })?.action === "START",
+      response: freebuffFixtureResponse("run-start-success.json"),
+    },
+    {
+      match: /api\/v1\/chat\/completions/,
+      response: chatResponse,
+    },
+  ]);
+}
+
+test("Freebuff P5 health records success only at terminal response settlement", async () => {
+  const deferred = deferredFreebuffResponse();
+  const { fetch: fetchMock } = createLifecycleFetchMock(deferred.response);
+
+  const execution = await withFreebuffFetch(fetchMock, () =>
+    new FreebuffExecutor().execute(BASE_INPUT as never)
+  );
+
+  assert.equal(healthSnapshot().requests.total, 0);
+  deferred.release();
+  await execution.response.arrayBuffer();
+
+  const settled = healthSnapshot();
+  assert.equal(settled.requests.total, 1);
+  assert.equal(settled.requests.failed, 0);
+});
+
+test("Freebuff P5 health classifies a missing stream terminal as malformed", async () => {
+  const deferred = deferredFreebuffResponse([
+    'data: {"id":"partial","choices":[{"delta":{"content":"partial"}}]}\n\n',
+  ]);
+  const { fetch: fetchMock } = createLifecycleFetchMock(deferred.response);
+
+  const execution = await withFreebuffFetch(fetchMock, () =>
+    new FreebuffExecutor().execute(BASE_INPUT as never)
+  );
+  deferred.release();
+  await assert.rejects(execution.response.arrayBuffer(), /terminal event/);
+
+  const settled = healthSnapshot();
+  assert.equal(settled.requests.total, 1);
+  assert.equal(settled.requests.failed, 1);
+  assert.equal(settled.requests.errorsByPhase.chat, 1);
+  assert.equal(settled.requests.errorsByKind.malformed, 1);
+});
+
+test("Freebuff P5 health records downstream cancellation exactly once", async () => {
+  const deferred = deferredFreebuffResponse();
+  const { fetch: fetchMock } = createLifecycleFetchMock(deferred.response);
+
+  const execution = await withFreebuffFetch(fetchMock, () =>
+    new FreebuffExecutor().execute(BASE_INPUT as never)
+  );
+  const reader = execution.response.body?.getReader();
+  assert.ok(reader);
+  await reader.cancel(new DOMException("test cancellation", "AbortError"));
+
+  const settled = healthSnapshot();
+  assert.equal(settled.requests.total, 1);
+  assert.equal(settled.requests.failed, 1);
+  assert.equal(settled.requests.errorsByPhase.chat, 1);
+  assert.equal(settled.requests.errorsByKind.aborted, 1);
 });

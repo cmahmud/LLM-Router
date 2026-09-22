@@ -10,7 +10,7 @@ export type FreebuffRunStatus = "completed" | "failed" | "cancelled";
 export type BindFreebuffResponseOptions = {
   signal?: AbortSignal | null;
   protocol?: FreebuffResponseProtocol;
-  onSettled?: () => Promise<void> | void;
+  onSettled?: (status: FreebuffResponseSettlement, error?: unknown) => Promise<void> | void;
 };
 
 function responseProtocol(response: Response): FreebuffResponseProtocol {
@@ -53,13 +53,13 @@ export class FreebuffRunHandle {
   bindResponse(response: Response, options: BindFreebuffResponseOptions = {}): Response {
     let settled: Promise<void> | null = null;
 
-    const settle = (status: FreebuffResponseSettlement): Promise<void> => {
+    const settle = (status: FreebuffResponseSettlement, error?: unknown): Promise<void> => {
       if (settled) return settled;
       settled = (async () => {
         try {
           await this.finalize(mapSettlement(status));
         } finally {
-          await options.onSettled?.();
+          await options.onSettled?.(status, error);
         }
       })();
       return settled;
@@ -68,7 +68,7 @@ export class FreebuffRunHandle {
     return wrapFreebuffResponse(response, {
       protocol: options.protocol ?? responseProtocol(response),
       signal: options.signal,
-      onSettled: (status) => settle(status),
+      onSettled: (status, error) => settle(status, error),
     });
   }
 }
