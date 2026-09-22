@@ -132,10 +132,10 @@ P5 is integrated into `dev`; the feature branch preserves its dependency history
 ## P6 deployment-readiness gate
 
 P6 is isolated on `freebuff-p6-deployment-readiness`, based on integrated `dev` at
-`cd6c254bbab77e723830a3758d1ad188d3662e6e`. The implementation/documentation
-head before this STATUS checkpoint is `55e345d6bd09cee15c065096595bc03ef20c7ac9`.
-Only the bounded live harness, deployment/rollback operations document, and
-the deployment decision were added; P2–P5 code and `dev` were not modified.
+`cd6c254bbab77e723830a3758d1ad188d3662e6e`. The initial implementation/documentation checkpoint is `55e345d6bd09cee15c065096595bc03ef20c7ac9`; the bounded-harness cleanup follow-up is
+`a76814f7aa5511bcd84dfcefa62ee9fc5114b134`. Only the bounded live harness,
+deployment/rollback operations document, deployment decision, and this gate
+record were added; P2–P5 code and `dev` were not modified.
 
 ### ARM64/offline evidence
 
@@ -165,9 +165,9 @@ the deployment decision were added; P2–P5 code and `dev` were not modified.
 - Because the VPS connector is unavailable, P6 has not claimed isolated
   startup, readiness/liveness/database health, TERM shutdown, restart,
   rollback rehearsal, resource/concurrency smoke, non-FreeBuff regression, or
-  the remaining full P6 validation suites. The current branch script was also
-  not rechecked after publication; no result is inferred from the lost
-  session.
+  the remaining full P6 validation suites. The published harness passes local
+  `node --check` and its disabled-path smoke; its ARM64/VPS recheck remains
+  blocked, and no result is inferred from the lost session.
 - The connector error was reported once and retries stopped. No deployment,
   service activation, public routing change, data migration, or MCP change was
   performed.
