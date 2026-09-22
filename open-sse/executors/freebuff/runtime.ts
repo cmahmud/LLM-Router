@@ -311,7 +311,7 @@ export async function shutdownSharedFreebuffRuntime(): Promise<void> {
 }
 
 export function resetSharedFreebuffRuntimeForTests(): void {
-  sharedRuntime.scheduler.resetForTests();
   sharedRuntime.sessions.resetForTests();
+  sharedRuntime.scheduler.resetForTests();
   sharedRuntime = createSharedRuntime();
 }

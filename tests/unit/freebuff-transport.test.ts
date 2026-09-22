@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { afterEach } from "node:test";
 
 import { FreebuffExecutor } from "../../open-sse/executors/freebuff.ts";
+import { resetSharedFreebuffRuntimeForTests } from "../../open-sse/executors/freebuff/runtime.ts";
 import {
   createFreebuffFetchMock,
   freebuffFixtureResponse,
   withFreebuffFetch,
 } from "./helpers/freebuff-fixtures.ts";
+
+afterEach(() => resetSharedFreebuffRuntimeForTests());
 
 const BASE_INPUT = {
   model: "deepseek/deepseek-v4-flash",
@@ -65,6 +68,7 @@ test("Freebuff transport: uses dedicated admission endpoint and protocol headers
     new FreebuffExecutor().execute(BASE_INPUT as never)
   );
   assert.equal(result.response.status, 200);
+  await result.response.arrayBuffer();
 
   const admission = calls.find((call) => call.url.endsWith("/freebuff/session/admission"));
   assert.ok(admission);
@@ -126,7 +130,7 @@ test("Freebuff transport: preserves safe payload metadata and client content whi
     },
   ]);
 
-  await withFreebuffFetch(fetchMock, () =>
+  const execution = await withFreebuffFetch(fetchMock, () =>
     new FreebuffExecutor().execute({ ...BASE_INPUT, body } as never)
   );
 
@@ -144,6 +148,7 @@ test("Freebuff transport: preserves safe payload metadata and client content whi
   assert.equal(sent.codebuff_metadata.freebuff_instance_id, "fixture-instance-001");
   assert.notEqual(sent.codebuff_metadata.client_id, "caller-client");
   assert.equal("totalCredits" in sent.codebuff_metadata, false);
+  await execution.response.arrayBuffer();
 });
 
 test("Freebuff transport: malformed START success is a structured error and chat is not dispatched", async () => {

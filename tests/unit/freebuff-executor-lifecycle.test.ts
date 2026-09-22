@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { afterEach } from "node:test";
 
 import { FreebuffExecutor } from "../../open-sse/executors/freebuff.ts";
+import { resetSharedFreebuffRuntimeForTests } from "../../open-sse/executors/freebuff/runtime.ts";
 import {
   createFreebuffFetchMock,
   deferredFreebuffResponse,
@@ -9,6 +10,8 @@ import {
   readFreebuffFixtureJson,
   withFreebuffFetch,
 } from "./helpers/freebuff-fixtures.ts";
+
+afterEach(() => resetSharedFreebuffRuntimeForTests());
 
 const CREDENTIALS = { apiKey: "fixture-token-only-in-memory" };
 const BASE_INPUT = {
@@ -137,7 +140,7 @@ test("Freebuff P0 regression: server-owned metadata cannot be overridden by call
     },
   ]);
 
-  await withFreebuffFetch(fetchMock, () =>
+  const execution = await withFreebuffFetch(fetchMock, () =>
     new FreebuffExecutor().execute({ ...BASE_INPUT, body } as never)
   );
 
@@ -149,6 +152,7 @@ test("Freebuff P0 regression: server-owned metadata cannot be overridden by call
   assert.equal(metadata?.freebuff_instance_id, "fixture-instance-001");
   assert.notEqual(metadata?.client_id, "caller-client-override");
   assert.notEqual(metadata?.totalCredits, 999);
+  await execution.response.arrayBuffer();
 });
 
 test("Freebuff P0 regression: FINISH waits for body consumption", async () => {

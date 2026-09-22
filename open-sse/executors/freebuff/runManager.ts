@@ -44,6 +44,7 @@ export class FreebuffRunHandle {
     const reader = response.body?.getReader();
     let settled: Promise<void> | null = null;
     let controllerClosed = false;
+    let abortListener: (() => void) | null = null;
 
     const settle = (status: FreebuffRunStatus): Promise<void> => {
       if (settled) return settled;
@@ -51,7 +52,13 @@ export class FreebuffRunHandle {
         try {
           await this.finalize(status);
         } finally {
-          await options.onSettled?.();
+          try {
+            await options.onSettled?.();
+          } finally {
+            if (abortListener && options.signal) {
+              options.signal.removeEventListener("abort", abortListener);
+            }
+          }
         }
       })();
       return settled;
@@ -70,8 +77,6 @@ export class FreebuffRunHandle {
         headers: response.headers,
       });
     }
-
-    let abortListener: (() => void) | null = null;
 
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -130,11 +135,6 @@ export class FreebuffRunHandle {
       },
     });
 
-    void settled?.finally(() => {
-      if (abortListener && options.signal) {
-        options.signal.removeEventListener("abort", abortListener);
-      }
-    });
 
     return new Response(body, {
       status: response.status,

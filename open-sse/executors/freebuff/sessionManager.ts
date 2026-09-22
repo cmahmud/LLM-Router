@@ -394,7 +394,11 @@ export class FreebuffSessionManager {
         if (released) return;
         released = true;
         record.leaseCount = Math.max(0, record.leaseCount - 1);
-        if (record.leaseCount === 0) {
+        if (
+          record.leaseCount === 0 &&
+          !this.closed &&
+          this.records.get(accountKey) === record
+        ) {
           await this.scheduleIdleRelease(record);
         }
       },
