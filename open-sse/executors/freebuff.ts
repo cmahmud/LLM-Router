@@ -1,27 +1,32 @@
-import { randomInt } from "node:crypto";
-
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
 import { PROVIDERS } from "../config/constants.ts";
+import { FreebuffClient, parseFreebuffRetryAfterMs } from "./freebuff/client.ts";
+import {
+  FreebuffClientError,
+  freebuffAdmissionError,
+  freebuffErrorResponse,
+  freebuffInvalidRequest,
+  freebuffUpstreamStatusError,
+} from "./freebuff/errors.ts";
+import {
+  buildFreebuffChatBody,
+  resolveFreebuffAgentId,
+  resolveFreebuffModel,
+} from "./freebuff/request.ts";
 
-const MODEL_TO_AGENT: Record<string, string> = {
-  "deepseek/deepseek-v4-flash": "base2-free-deepseek-flash",
-  "deepseek/deepseek-v4-pro": "base2-free-deepseek",
-  "openai/gpt-5.6-luna": "base2-free-luna",
-  "minimax/minimax-m3": "base2-free-minimax-m3",
-  "mimo/mimo-v2.5": "base2-free-mimo",
-  "z-ai/glm-5.2": "base2-free-glm",
-  "crof/kimi-k3-eco": "base2-free-kimi-k3-eco",
-  "anthropic/claude-fable-5": "base2-free-fable",
-  "meta/muse-spark-1.2-contributor": "base2-free-muse-spark",
-};
+function resolveToken(input: ExecuteInput): string | null {
+  const token = input.credentials?.apiKey || input.credentials?.accessToken;
+  if (typeof token !== "string" || token.trim().length === 0) return null;
+  return token;
+}
 
-function generateClientSessionId(): string {
-  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
-  let out = "";
-  for (let i = 0; i < 13; i++) {
-    out += alphabet[randomInt(alphabet.length)];
-  }
-  return out;
+function unexpectedFreebuffError(operation: string, error: unknown): FreebuffClientError {
+  if (error instanceof FreebuffClientError) return error;
+  return new FreebuffClientError(`Freebuff ${operation} failed`, {
+    status: 502,
+    kind: "upstream",
+    cause: error,
+  });
 }
 
 export class FreebuffExecutor extends BaseExecutor {
@@ -30,170 +35,93 @@ export class FreebuffExecutor extends BaseExecutor {
   }
 
   override async execute(input: ExecuteInput) {
-    const { model, body, stream, credentials, signal } = input;
-    const token = credentials?.apiKey || credentials?.accessToken || "";
-    const payload =
-      body && typeof body === "object" && !Array.isArray(body)
-        ? (body as Record<string, unknown>)
-        : {};
-
+    const { body, stream, signal } = input;
+    const token = resolveToken(input);
     if (!token) {
       return {
-        response: new Response(
-          JSON.stringify({
-            error: { message: "Freebuff Auth Token required", type: "authentication_error" },
-          }),
-          { status: 401, headers: { "Content-Type": "application/json" } }
+        response: freebuffErrorResponse(
+          new FreebuffClientError("Freebuff Auth Token required", {
+            status: 401,
+            kind: "auth",
+          })
         ),
       };
     }
 
-    const requestedModel =
-      typeof model === "string"
-        ? model.replace(/^freebuff\//, "")
-        : model || "deepseek/deepseek-v4-flash";
-    const agentId = MODEL_TO_AGENT[requestedModel] || "base2-free";
+    const requestedModel = resolveFreebuffModel(input.model);
+    if (!requestedModel) {
+      return { response: freebuffInvalidRequest("A Freebuff model is required") };
+    }
 
-    const authHeaders = {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": "codebuff/0.1.0 (darwin-arm64)",
-    };
+    const agentId = resolveFreebuffAgentId(requestedModel);
+    if (!agentId) {
+      return {
+        response: freebuffInvalidRequest(`Unsupported Freebuff model: ${requestedModel}`),
+      };
+    }
 
-    let instanceId = "";
-    let runId = "";
+    const client = new FreebuffClient();
+    let runId: string | null = null;
 
-    // 1. Session acquisition
     try {
-      const sessionRes = await fetch("https://www.codebuff.com/api/v1/freebuff/session", {
-        method: "POST",
-        headers: {
-          ...authHeaders,
-          "x-freebuff-model": requestedModel,
-        },
-        body: JSON.stringify({}),
-        signal,
-      });
-      if (sessionRes.ok) {
-        const data = (await sessionRes.json()) as { instanceId?: string };
-        instanceId = data.instanceId || "";
-      } else {
-        const errText = await sessionRes.text();
+      const admission = await client.admitSession(token, requestedModel, signal);
+      if (admission.status !== "active") {
         return {
-          response: new Response(
-            JSON.stringify({
-              error: {
-                message: `Freebuff session failed (${sessionRes.status}): ${errText}`,
-                type: "upstream_error",
-              },
-            }),
-            { status: sessionRes.status, headers: { "Content-Type": "application/json" } }
+          response: freebuffErrorResponse(
+            freebuffAdmissionError(admission.status, admission.retryAfterMs)
           ),
         };
       }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return {
-        response: new Response(
-          JSON.stringify({
-            error: { message: `Freebuff session network error: ${msg}`, type: "upstream_error" },
-          }),
-          { status: 502, headers: { "Content-Type": "application/json" } }
-        ),
-      };
-    }
 
-    // 2. Start agent run
-    try {
-      const runRes = await fetch("https://www.codebuff.com/api/v1/agent-runs", {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({ action: "START", agentId }),
+      const run = await client.startRun(token, agentId, signal);
+      runId = run.runId;
+
+      const upstreamBody = buildFreebuffChatBody({
+        body,
+        model: requestedModel,
+        stream: stream !== false,
+        runId,
+        instanceId: admission.instanceId,
+      });
+      if (!upstreamBody) {
+        void client.finishRun({ token, runId, status: "failed" }).catch(() => {});
+        return { response: freebuffInvalidRequest("Freebuff request body must be a JSON object") };
+      }
+
+      const response = await client.chatCompletion({
+        token,
+        agentId,
+        runId,
+        instanceId: admission.instanceId,
+        body: upstreamBody,
         signal,
       });
-      if (runRes.ok) {
-        const runData = (await runRes.json()) as { runId?: string };
-        runId = runData.runId || "";
+
+      if (!response.ok) {
+        void client.finishRun({ token, runId, status: "failed" }).catch(() => {});
+        return {
+          response: freebuffErrorResponse(
+            freebuffUpstreamStatusError(
+              "chat completion",
+              response.status,
+              parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
+            )
+          ),
+        };
       }
-    } catch {}
 
-    // 3. Prepare Chat Payload & Buffy System Prompt
-    const incomingMessages: Array<Record<string, unknown>> = Array.isArray(payload.messages)
-      ? payload.messages.filter(
-          (message): message is Record<string, unknown> =>
-            !!message && typeof message === "object" && !Array.isArray(message)
-        )
-      : [];
-    const firstMessage = incomingMessages[0];
-    const hasBuffyPrompt =
-      incomingMessages.length > 0 &&
-      firstMessage?.role === "system" &&
-      typeof firstMessage.content === "string" &&
-      firstMessage.content.trim().startsWith("You are Buffy");
+      // Packet 3 owns response-body/stream lifetime. Until that lands, preserve the
+      // existing FINISH timing while making every pre-stream terminal path truthful.
+      void client.finishRun({ token, runId, status: "completed" }).catch(() => {});
 
-    if (!hasBuffyPrompt) {
-      incomingMessages.unshift({
-        role: "system",
-        content: "You are Buffy, the strategic coding assistant.",
-      });
+      return { response };
+    } catch (error) {
+      const freebuffError = unexpectedFreebuffError("request", error);
+      if (runId) {
+        const finishStatus = freebuffError.kind === "aborted" ? "cancelled" : "failed";
+        void client.finishRun({ token, runId, status: finishStatus }).catch(() => {});
+      }
+      return { response: freebuffErrorResponse(freebuffError) };
     }
-
-    const clientSessionId = generateClientSessionId();
-    const existingMetadata =
-      payload.codebuff_metadata &&
-      typeof payload.codebuff_metadata === "object" &&
-      !Array.isArray(payload.codebuff_metadata)
-        ? (payload.codebuff_metadata as Record<string, unknown>)
-        : {};
-    const upstreamBody = {
-      ...payload,
-      model: requestedModel,
-      messages: incomingMessages,
-      stream: stream !== false,
-      codebuff_metadata: {
-        run_id: runId,
-        cost_mode: "free",
-        client_id: clientSessionId,
-        freebuff_instance_id: instanceId,
-        ...existingMetadata,
-      },
-    };
-
-    const completionHeaders = {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "User-Agent": "ai-sdk/openai-compatible/1.0.25/codebuff",
-      Accept: "application/json, text/event-stream",
-      "x-freebuff-instance-id": instanceId,
-      ...(runId ? { "x-codebuff-run-id": runId } : {}),
-      "x-codebuff-agent-id": agentId,
-    };
-
-    // 4. Chat Completion
-    const completionUrl = "https://www.codebuff.com/api/v1/chat/completions";
-    const response = await fetch(completionUrl, {
-      method: "POST",
-      headers: completionHeaders,
-      body: JSON.stringify(upstreamBody),
-      signal,
-    });
-
-    // 5. Finish agent run (background)
-    if (runId) {
-      void fetch("https://www.codebuff.com/api/v1/agent-runs", {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify({
-          action: "FINISH",
-          runId,
-          status: "completed",
-          totalSteps: 1,
-          directCredits: 0,
-          totalCredits: 0,
-        }),
-      }).catch(() => {});
-    }
-
-    return { response };
   }
 }

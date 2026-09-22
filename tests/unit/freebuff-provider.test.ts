@@ -6,6 +6,7 @@ import type { ExecuteInput } from "../../open-sse/executors/base.ts";
 import { freebuffProvider } from "../../open-sse/config/providers/registry/freebuff/index.ts";
 import { APIKEY_PROVIDERS_GATEWAYS } from "../../src/shared/constants/providers/apikey/gateways.ts";
 import { validateFreebuffProvider } from "../../src/lib/providers/validation.ts";
+import { createFreebuffFetchMock, withFreebuffFetch } from "./helpers/freebuff-fixtures.ts";
 
 test("FreebuffExecutor: constructor initializes provider name correctly", () => {
   const executor = new FreebuffExecutor();
@@ -56,4 +57,85 @@ test("validateFreebuffProvider: returns invalid when apiKey is empty", async () 
   const res = await validateFreebuffProvider({ apiKey: "" });
   assert.equal(res.valid, false);
   assert.match(res.error || "", /Freebuff Auth Token required/i);
+});
+
+test("validateFreebuffProvider: uses read-only /me credential validation", async () => {
+  const { fetch: fetchMock, calls } = createFreebuffFetchMock([
+    {
+      match: /\/api\/v1\/me\?fields=id$/,
+      response: new Response(JSON.stringify({ id: "fixture-user" }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    },
+  ]);
+
+  const result = await withFreebuffFetch(fetchMock, () =>
+    validateFreebuffProvider({ apiKey: "fixture-token" })
+  );
+
+  assert.equal(result.valid, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.init.method, "GET");
+  assert.match(calls[0]?.url || "", /\/api\/v1\/me\?fields=id$/);
+  assert.equal(
+    calls.some((call) => call.url.includes("/freebuff/session")),
+    false
+  );
+});
+
+test("validateFreebuffProvider: distinguishes authentication and forbidden responses", async () => {
+  for (const fixture of [
+    { status: 401, message: /Invalid or expired/i },
+    { status: 403, message: /forbidden/i },
+  ]) {
+    const { fetch: fetchMock } = createFreebuffFetchMock([
+      {
+        match: /\/api\/v1\/me\?fields=id$/,
+        response: new Response("{}", { status: fixture.status }),
+      },
+    ]);
+
+    const result = await withFreebuffFetch(fetchMock, () =>
+      validateFreebuffProvider({ apiKey: "fixture-token" })
+    );
+    assert.equal(result.valid, false);
+    assert.match(result.error || "", fixture.message);
+  }
+});
+
+test("validateFreebuffProvider: rejects malformed success responses without leaking bodies", async () => {
+  const { fetch: fetchMock } = createFreebuffFetchMock([
+    {
+      match: /\/api\/v1\/me\?fields=id$/,
+      response: new Response(
+        JSON.stringify({ diagnostic: "synthetic sensitive-looking diagnostic" }),
+        { headers: { "Content-Type": "application/json" } }
+      ),
+    },
+  ]);
+
+  const result = await withFreebuffFetch(fetchMock, () =>
+    validateFreebuffProvider({ apiKey: "fixture-token" })
+  );
+
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /invalid response shape/i);
+  assert.doesNotMatch(result.error || "", /sensitive-looking diagnostic/i);
+});
+
+test("validateFreebuffProvider: sanitizes network failures", async () => {
+  const { fetch: fetchMock } = createFreebuffFetchMock([
+    {
+      match: /\/api\/v1\/me\?fields=id$/,
+      error: new Error("synthetic network detail bearer-secret-should-not-leak"),
+    },
+  ]);
+
+  const result = await withFreebuffFetch(fetchMock, () =>
+    validateFreebuffProvider({ apiKey: "fixture-token" })
+  );
+
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /could not reach/i);
+  assert.doesNotMatch(result.error || "", /bearer-secret|synthetic network detail/i);
 });

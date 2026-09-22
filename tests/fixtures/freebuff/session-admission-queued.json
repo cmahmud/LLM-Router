@@ -1,5 +1,6 @@
 {
   "_fixture": "synthetic",
+  "_purpose": "legacy-or-malformed admission shape that must fail closed",
   "state": "queued",
   "requestId": "fixture-admission-001",
   "retryAfterMs": 1000

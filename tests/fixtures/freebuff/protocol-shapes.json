@@ -1,28 +1,27 @@
 {
   "_fixture": "synthetic",
   "sourceRevision": "29cb7f7aaef37343a45b0cd7d79acb721919dc16",
-  "note": "Representative shapes only. No credentials, cookies, session IDs, run IDs, or personal data.",
+  "note": "Representative sanitized wire shapes only. No credentials, cookies, real session IDs, run IDs, or personal data.",
   "admission": {
     "method": "POST",
     "path": "/api/v1/freebuff/session/admission",
-    "request": {
-      "model": "fixture/model",
-      "walletCap": 0,
-      "consent": false
+    "requestHeaders": {
+      "x-freebuff-model": "fixture/model",
+      "x-freebuff-wallet-spend-limit": "0"
     },
     "active": {
-      "state": "active",
+      "status": "active",
       "instanceId": "fixture-instance-001",
       "model": "fixture/model"
     },
-    "queued": {
-      "state": "queued",
-      "requestId": "fixture-admission-001",
+    "rateLimited": {
+      "status": "rate_limited",
+      "model": "fixture/model",
       "retryAfterMs": 1000
     },
-    "denied": {
-      "state": "denied",
-      "reason": "model_unavailable"
+    "legacyMalformed": {
+      "state": "queued",
+      "requestId": "fixture-admission-001"
     }
   },
   "run": {

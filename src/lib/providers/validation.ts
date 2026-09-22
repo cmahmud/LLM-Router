@@ -1,5 +1,7 @@
 import { getEmbeddingProvider } from "@omniroute/open-sse/config/embeddingRegistry.ts";
 import { getRegistryEntry } from "@omniroute/open-sse/config/providerRegistry.ts";
+import { FreebuffClient } from "@omniroute/open-sse/executors/freebuff/client.ts";
+import { FreebuffClientError } from "@omniroute/open-sse/executors/freebuff/errors.ts";
 import {
   isClaudeCodeCompatibleProvider,
   isAnthropicCompatibleProvider,
@@ -142,37 +144,62 @@ export { validateWebCookieProvider, bytezValidationResultFromStatus };
 // They are re-exported above to preserve the historical public surface.
 
 export async function validateFreebuffProvider({ apiKey }: { apiKey: string }) {
-  if (!apiKey) {
+  if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
     return { valid: false, error: "Freebuff Auth Token required", unsupported: false };
   }
-  try {
-    const res = await fetch("https://www.codebuff.com/api/v1/freebuff/session", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "User-Agent": "codebuff/0.1.0 (darwin-arm64)",
-        "x-freebuff-model": "deepseek/deepseek-v4-flash",
-      },
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(15000),
-    });
 
-    if (res.ok || res.status === 409) {
-      return { valid: true, error: null };
+  try {
+    await new FreebuffClient().probeUser(apiKey);
+    return { valid: true, error: null };
+  } catch (error: unknown) {
+    if (error instanceof FreebuffClientError) {
+      if (error.kind === "auth" || error.status === 404) {
+        return {
+          valid: false,
+          error: "Invalid or expired Freebuff Auth Token",
+          unsupported: false,
+        };
+      }
+      if (error.kind === "forbidden") {
+        return {
+          valid: false,
+          error: "Freebuff credential validation was forbidden",
+          unsupported: false,
+        };
+      }
+      if (error.kind === "rate_limit") {
+        return {
+          valid: false,
+          error: "Freebuff credential validation is temporarily rate limited",
+          unsupported: false,
+        };
+      }
+      if (error.kind === "timeout") {
+        return {
+          valid: false,
+          error: "Freebuff credential validation timed out",
+          unsupported: false,
+        };
+      }
+      if (error.kind === "network") {
+        return {
+          valid: false,
+          error: "Freebuff credential validation could not reach the upstream service",
+          unsupported: false,
+        };
+      }
+      return {
+        valid: false,
+        error: error.message,
+        unsupported: false,
+      };
     }
-    if (res.status === 401 || res.status === 403) {
-      return { valid: false, error: "Invalid or expired Freebuff Auth Token", unsupported: false };
-    }
-    const errText = await res.text().catch(() => "");
+
     return {
       valid: false,
-      error: `Freebuff validation returned ${res.status}: ${errText.slice(0, 100)}`,
+      error: "Freebuff credential validation failed",
       unsupported: false,
     };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { valid: false, error: `Freebuff validation network error: ${msg}`, unsupported: false };
   }
 }
 

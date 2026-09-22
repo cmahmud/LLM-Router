@@ -26,25 +26,25 @@ test("Freebuff P0 fixture set contains representative synthetic protocol shapes"
   const shapes = readFreebuffFixtureJson<{
     _fixture: string;
     sourceRevision: string;
-    admission: { active: object; queued: object; denied: object };
+    admission: { active: object; rateLimited: object; legacyMalformed: object };
     run: { start: object; finish: object };
     chat: { stream: string; terminal: string };
   }>("protocol-shapes.json");
 
   assert.equal(shapes._fixture, "synthetic");
   assert.match(shapes.sourceRevision, /^[0-9a-f]{40}$/);
-  assert.equal(shapes.admission.active.state, "active");
-  assert.equal(shapes.admission.queued.state, "queued");
-  assert.equal(shapes.admission.denied.state, "denied");
+  assert.equal(shapes.admission.active.status, "active");
+  assert.equal(shapes.admission.rateLimited.status, "rate_limited");
+  assert.equal(shapes.admission.legacyMalformed.state, "queued");
   assert.equal(shapes.run.start.action, "START");
   assert.equal(shapes.run.finish.action, "FINISH");
   assert.equal(shapes.chat.terminal, "[DONE]");
 });
 
-test("Freebuff P0 regression: queued admission must not dispatch a run or chat", async () => {
+test("Freebuff P0 regression: legacy queued-shaped admission must fail closed", async () => {
   const { fetch: fetchMock, calls } = createFreebuffFetchMock([
     {
-      match: /freebuff\/session$/,
+      match: /freebuff\/session\/admission$/,
       response: freebuffFixtureResponse("session-admission-queued.json"),
     },
   ]);
@@ -53,26 +53,27 @@ test("Freebuff P0 regression: queued admission must not dispatch a run or chat",
     new FreebuffExecutor().execute(BASE_INPUT as never)
   );
 
-  assert.ok(result.response.status >= 400, "queued admission must be surfaced as an error");
+  assert.ok(
+    result.response.status >= 400,
+    "legacy queued-shaped admission must be surfaced as an error"
+  );
   assert.equal(
     calls.filter((call) => call.url.endsWith("/api/v1/agent-runs")).length,
     0,
-    "queued admission must not start a run"
+    "legacy queued-shaped admission must not start a run"
   );
   assert.equal(
     calls.filter((call) => call.url.endsWith("/api/v1/chat/completions")).length,
     0,
-    "queued admission must not dispatch chat"
+    "legacy queued-shaped admission must not dispatch chat"
   );
 });
 
 test("Freebuff P0 regression: missing active instance must stop before START", async () => {
   const { fetch: fetchMock, calls } = createFreebuffFetchMock([
     {
-      match: /freebuff\/session$/,
-      response: freebuffFixtureResponse(
-        "session-admission-active-missing-instance.json"
-      ),
+      match: /freebuff\/session\/admission$/,
+      response: freebuffFixtureResponse("session-admission-active-missing-instance.json"),
     },
   ]);
 
@@ -81,20 +82,14 @@ test("Freebuff P0 regression: missing active instance must stop before START", a
   );
 
   assert.ok(result.response.status >= 400, "missing instance must be an upstream error");
-  assert.equal(
-    calls.filter((call) => call.url.endsWith("/api/v1/agent-runs")).length,
-    0
-  );
-  assert.equal(
-    calls.filter((call) => call.url.endsWith("/api/v1/chat/completions")).length,
-    0
-  );
+  assert.equal(calls.filter((call) => call.url.endsWith("/api/v1/agent-runs")).length, 0);
+  assert.equal(calls.filter((call) => call.url.endsWith("/api/v1/chat/completions")).length, 0);
 });
 
 test("Freebuff P0 regression: START failure must stop before chat dispatch", async () => {
   const { fetch: fetchMock, calls } = createFreebuffFetchMock([
     {
-      match: /freebuff\/session$/,
+      match: /freebuff\/session\/admission$/,
       response: freebuffFixtureResponse("session-admission-active.json"),
     },
     {
@@ -112,10 +107,7 @@ test("Freebuff P0 regression: START failure must stop before chat dispatch", asy
   );
 
   assert.ok(result.response.status >= 400, "START failure must be surfaced");
-  assert.equal(
-    calls.filter((call) => call.url.endsWith("/api/v1/chat/completions")).length,
-    0
-  );
+  assert.equal(calls.filter((call) => call.url.endsWith("/api/v1/chat/completions")).length, 0);
 });
 
 test("Freebuff P0 regression: server-owned metadata cannot be overridden by caller", async () => {
@@ -130,7 +122,7 @@ test("Freebuff P0 regression: server-owned metadata cannot be overridden by call
   };
   const { fetch: fetchMock, calls } = createFreebuffFetchMock([
     {
-      match: /freebuff\/session$/,
+      match: /freebuff\/session\/admission$/,
       response: freebuffFixtureResponse("session-admission-active.json"),
     },
     {
@@ -163,7 +155,7 @@ test("Freebuff P0 regression: FINISH waits for body consumption", async () => {
   const deferred = deferredFreebuffResponse();
   const { fetch: fetchMock, calls } = createFreebuffFetchMock([
     {
-      match: /freebuff\/session$/,
+      match: /freebuff\/session\/admission$/,
       response: freebuffFixtureResponse("session-admission-active.json"),
     },
     {
@@ -218,7 +210,7 @@ test("Freebuff P0 regression: missing admission errors are sanitized", async () 
   );
   const { fetch: fetchMock } = createFreebuffFetchMock([
     {
-      match: /freebuff\/session$/,
+      match: /freebuff\/session\/admission$/,
       response: new Response(JSON.stringify(upstreamBody), {
         status: 502,
         headers: { "Content-Type": "application/json" },
@@ -232,8 +224,5 @@ test("Freebuff P0 regression: missing admission errors are sanitized", async () 
   const responseBody = (await result.response.json()) as { error?: { message?: string } };
 
   assert.equal(result.response.status, 502);
-  assert.doesNotMatch(
-    responseBody.error?.message || "",
-    /synthetic upstream diagnostic/
-  );
+  assert.doesNotMatch(responseBody.error?.message || "", /synthetic upstream diagnostic/);
 });
