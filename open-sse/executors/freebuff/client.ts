@@ -7,6 +7,7 @@ import {
 } from "./schemas.ts";
 import {
   FREEBUFF_BASE_URL,
+  FREEBUFF_CLEANUP_TIMEOUT_MS,
   FREEBUFF_HEADERS,
   FREEBUFF_MAX_JSON_BYTES,
   FREEBUFF_OPERATION_TIMEOUT_MS,
@@ -95,19 +96,19 @@ function authorizationHeaders(token: string): Record<string, string> {
 
 export class FreebuffClient {
   constructor(
-    private readonly fetchFn: typeof globalThis.fetch = (input, init) =>
-      globalThis.fetch(input, init),
+    private readonly fetchFn: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
     private readonly timeoutMs = FREEBUFF_OPERATION_TIMEOUT_MS
   ) {}
 
   private async withTimeout<T>(
     operation: string,
     signal: AbortSignal | null | undefined,
-    fn: (effectiveSignal: AbortSignal) => Promise<T>
+    fn: (effectiveSignal: AbortSignal) => Promise<T>,
+    timeoutMs = this.timeoutMs
   ): Promise<T> {
     const timeoutController = new AbortController();
     const timeoutError = new DOMException(`Freebuff ${operation} timed out`, "TimeoutError");
-    const timeoutId = setTimeout(() => timeoutController.abort(timeoutError), this.timeoutMs);
+    const timeoutId = setTimeout(() => timeoutController.abort(timeoutError), timeoutMs);
     const effectiveSignal = signal
       ? AbortSignal.any([signal, timeoutController.signal])
       : timeoutController.signal;
@@ -161,6 +162,36 @@ export class FreebuffClient {
     });
   }
 
+  private async parseSessionResponse(
+    response: Response,
+    operation: string
+  ): Promise<FreebuffAdmission> {
+    if (response.status === 404) return { status: "none" };
+
+    const retryAfterMs = parseFreebuffRetryAfterMs(response.headers.get("retry-after"));
+    const text = await readBoundedText(response, operation);
+    let parsed: FreebuffAdmission;
+    try {
+      parsed = parseJson(text, freebuffAdmissionSchema, operation);
+    } catch (error) {
+      if (!response.ok) {
+        throw freebuffUpstreamStatusError(operation, response.status, retryAfterMs);
+      }
+      throw error;
+    }
+
+    if (!response.ok) {
+      if (parsed.status === "active" || response.status >= 500) {
+        throw freebuffUpstreamStatusError(operation, response.status, retryAfterMs);
+      }
+    }
+
+    if (parsed.retryAfterMs === undefined && retryAfterMs !== undefined) {
+      parsed.retryAfterMs = retryAfterMs;
+    }
+    return parsed;
+  }
+
   async probeUser(token: string, signal?: AbortSignal | null): Promise<FreebuffUserProbe> {
     return this.fetchJson({
       operation: "credential validation",
@@ -171,6 +202,24 @@ export class FreebuffClient {
       },
       signal,
       schema: freebuffUserProbeSchema,
+    });
+  }
+
+  async getSession(
+    token: string,
+    instanceId?: string,
+    signal?: AbortSignal | null
+  ): Promise<FreebuffAdmission> {
+    return this.withTimeout("session reconciliation", signal, async (effectiveSignal) => {
+      const response = await this.fetchFn(`${FREEBUFF_BASE_URL}${FREEBUFF_PATHS.session}`, {
+        method: "GET",
+        headers: {
+          ...authorizationHeaders(token),
+          ...(instanceId ? { [FREEBUFF_HEADERS.instanceId]: instanceId } : {}),
+        },
+        signal: effectiveSignal,
+      });
+      return this.parseSessionResponse(response, "session reconciliation");
     });
   }
 
@@ -189,39 +238,47 @@ export class FreebuffClient {
         },
         signal: effectiveSignal,
       });
-      const headerRetryAfterMs = parseFreebuffRetryAfterMs(response.headers.get("retry-after"));
 
       if (response.status === 404 || response.status === 405) {
         throw new FreebuffClientError(
           "Freebuff session admission endpoint is unavailable on this upstream",
-          { status: 502, kind: "upstream", retryAfterMs: headerRetryAfterMs }
+          {
+            status: 502,
+            kind: "upstream",
+            retryAfterMs: parseFreebuffRetryAfterMs(response.headers.get("retry-after")),
+          }
         );
       }
 
-      const text = await readBoundedText(response, "session admission");
-      let admission: FreebuffAdmission | null = null;
-      try {
-        admission = parseJson(text, freebuffAdmissionSchema, "session admission");
-      } catch (error) {
+      return this.parseSessionResponse(response, "session admission");
+    });
+  }
+
+  async releaseSession(token: string, instanceId: string): Promise<void> {
+    await this.withTimeout(
+      "session cleanup",
+      undefined,
+      async (effectiveSignal) => {
+        const response = await this.fetchFn(`${FREEBUFF_BASE_URL}${FREEBUFF_PATHS.session}`, {
+          method: "DELETE",
+          headers: {
+            ...authorizationHeaders(token),
+            [FREEBUFF_HEADERS.instanceId]: instanceId,
+          },
+          signal: effectiveSignal,
+        });
+
+        if (response.status === 404) return;
         if (!response.ok) {
           throw freebuffUpstreamStatusError(
-            "session admission",
+            "session cleanup",
             response.status,
-            headerRetryAfterMs
+            parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
           );
         }
-        throw error;
-      }
-
-      if (admission.status === "active" && !response.ok) {
-        throw freebuffUpstreamStatusError("session admission", response.status, headerRetryAfterMs);
-      }
-
-      if (admission.retryAfterMs === undefined && headerRetryAfterMs !== undefined) {
-        admission.retryAfterMs = headerRetryAfterMs;
-      }
-      return admission;
-    });
+      },
+      FREEBUFF_CLEANUP_TIMEOUT_MS
+    );
   }
 
   async startRun(
@@ -282,30 +339,37 @@ export class FreebuffClient {
     directCredits?: number;
     totalCredits?: number;
   }): Promise<void> {
-    await this.withTimeout("agent run finish", undefined, async (effectiveSignal) => {
-      const response = await this.fetchFn(`${FREEBUFF_BASE_URL}${FREEBUFF_PATHS.agentRuns}`, {
-        method: "POST",
-        headers: {
-          ...authorizationHeaders(params.token),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+    await this.withTimeout(
+      "agent run finish",
+      undefined,
+      async (effectiveSignal) => {
+        const payload: Record<string, unknown> = {
           action: "FINISH",
           runId: params.runId,
           status: params.status,
-          totalSteps: params.totalSteps ?? 1,
-          directCredits: params.directCredits ?? 0,
-          totalCredits: params.totalCredits ?? 0,
-        }),
-        signal: effectiveSignal,
-      });
-      if (!response.ok) {
-        throw freebuffUpstreamStatusError(
-          "agent run finish",
-          response.status,
-          parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
-        );
-      }
-    });
+        };
+        if (params.totalSteps !== undefined) payload.totalSteps = params.totalSteps;
+        if (params.directCredits !== undefined) payload.directCredits = params.directCredits;
+        if (params.totalCredits !== undefined) payload.totalCredits = params.totalCredits;
+
+        const response = await this.fetchFn(`${FREEBUFF_BASE_URL}${FREEBUFF_PATHS.agentRuns}`, {
+          method: "POST",
+          headers: {
+            ...authorizationHeaders(params.token),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          signal: effectiveSignal,
+        });
+        if (!response.ok) {
+          throw freebuffUpstreamStatusError(
+            "agent run finish",
+            response.status,
+            parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
+          );
+        }
+      },
+      FREEBUFF_CLEANUP_TIMEOUT_MS
+    );
   }
 }

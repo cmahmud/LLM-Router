@@ -36,7 +36,9 @@ export function freebuffFixtureResponse(
   return new Response(readFreebuffFixture(name), {
     ...init,
     headers: {
-      "Content-Type": isSse ? "text/event-stream" : "application/json",
+      "Content-Type": isSse
+        ? "text/event-stream"
+        : "application/json",
       ...(init.headers || {}),
     },
   });
@@ -75,7 +77,9 @@ export function deferredFreebuffResponse(
       headers: { "Content-Type": "text/event-stream" },
     }),
     release: releaseGate,
-    fail: (error = new Error("synthetic fixture stream failure")) => failGate(error),
+    fail: (
+      error = new Error("synthetic fixture stream failure")
+    ) => failGate(error),
   };
 }
 
@@ -88,12 +92,25 @@ function matches(
   return matcher(call);
 }
 
+function defaultFreebuffFallback(call: FreebuffFetchCall): Response {
+  if (
+    call.url.endsWith("/api/v1/freebuff/session") &&
+    (call.init.method || "GET").toUpperCase() === "GET"
+  ) {
+    return new Response(JSON.stringify({ status: "none" }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  return new Response(
+    JSON.stringify({ _fixture: "synthetic", ok: true }),
+    { headers: { "Content-Type": "application/json" } }
+  );
+}
+
 export function createFreebuffFetchMock(
   steps: FreebuffFetchStep[],
-  fallback: FreebuffFetchStep["response"] = () =>
-    new Response(JSON.stringify({ _fixture: "synthetic", ok: true }), {
-      headers: { "Content-Type": "application/json" },
-    })
+  fallback?: FreebuffFetchStep["response"]
 ): {
   fetch: typeof globalThis.fetch;
   calls: FreebuffFetchCall[];
@@ -101,7 +118,10 @@ export function createFreebuffFetchMock(
   const pending = [...steps];
   const calls: FreebuffFetchCall[] = [];
 
-  const fetchMock: typeof globalThis.fetch = async (input, init = {}) => {
+  const fetchMock: typeof globalThis.fetch = async (
+    input,
+    init = {}
+  ) => {
     const request = input instanceof Request ? input : undefined;
     const url = request?.url || String(input);
     const requestInit: RequestInit = {
@@ -114,7 +134,8 @@ export function createFreebuffFetchMock(
         : {}),
       ...init,
     };
-    const bodyText = typeof requestInit.body === "string" ? requestInit.body : "";
+    const bodyText =
+      typeof requestInit.body === "string" ? requestInit.body : "";
     let bodyJson: unknown = undefined;
     if (bodyText) {
       try {
@@ -126,17 +147,32 @@ export function createFreebuffFetchMock(
     const call = { url, init: requestInit, bodyText, bodyJson };
     calls.push(call);
 
-    const index = pending.findIndex((step) => matches(step.match, call));
+    const index = pending.findIndex((step) =>
+      matches(step.match, call)
+    );
     if (index >= 0) {
       const step = pending.splice(index, 1)[0];
       if (step.error) throw step.error;
       const response = step.response;
-      return typeof response === "function" ? await response() : response;
+      return typeof response === "function"
+        ? await response()
+        : response!;
     }
 
-    const response = typeof fallback === "function" ? await fallback() : fallback.clone();
-    if (!response) throw new Error(`No synthetic response configured for ${url}`);
-    return response;
+    if (fallback) {
+      const response =
+        typeof fallback === "function"
+          ? await fallback()
+          : fallback.clone();
+      if (!response) {
+        throw new Error(
+          `No synthetic response configured for ${url}`
+        );
+      }
+      return response;
+    }
+
+    return defaultFreebuffFallback(call);
   };
 
   return { fetch: fetchMock, calls };

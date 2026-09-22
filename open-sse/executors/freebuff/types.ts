@@ -17,6 +17,7 @@ export const FREEBUFF_HEADERS = {
 } as const;
 
 export const FREEBUFF_OPERATION_TIMEOUT_MS = 20_000;
+export const FREEBUFF_CLEANUP_TIMEOUT_MS = 5_000;
 export const FREEBUFF_MAX_JSON_BYTES = 64 * 1024;
 
 export const FREEBUFF_NON_ACTIVE_ADMISSION_STATUSES = [

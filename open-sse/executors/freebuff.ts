@@ -3,7 +3,6 @@ import { PROVIDERS } from "../config/constants.ts";
 import { FreebuffClient, parseFreebuffRetryAfterMs } from "./freebuff/client.ts";
 import {
   FreebuffClientError,
-  freebuffAdmissionError,
   freebuffErrorResponse,
   freebuffInvalidRequest,
   freebuffUpstreamStatusError,
@@ -13,6 +12,15 @@ import {
   resolveFreebuffAgentId,
   resolveFreebuffModel,
 } from "./freebuff/request.ts";
+import {
+  freebuffCredentialKey,
+  type FreebuffSessionLease,
+} from "./freebuff/sessionManager.ts";
+import {
+  getSharedFreebuffRuntime,
+  type FreebuffRequestPermit,
+} from "./freebuff/runtime.ts";
+import type { FreebuffRunHandle } from "./freebuff/runManager.ts";
 
 function resolveToken(input: ExecuteInput): string | null {
   const token = input.credentials?.apiKey || input.credentials?.accessToken;
@@ -20,13 +28,27 @@ function resolveToken(input: ExecuteInput): string | null {
   return token;
 }
 
-function unexpectedFreebuffError(operation: string, error: unknown): FreebuffClientError {
+function unexpectedFreebuffError(
+  operation: string,
+  error: unknown
+): FreebuffClientError {
   if (error instanceof FreebuffClientError) return error;
   return new FreebuffClientError(`Freebuff ${operation} failed`, {
     status: 502,
     kind: "upstream",
     cause: error,
   });
+}
+
+async function releaseLocalResources(
+  sessionLease: FreebuffSessionLease | null,
+  permit: FreebuffRequestPermit | null
+): Promise<void> {
+  try {
+    await sessionLease?.release();
+  } finally {
+    permit?.release();
+  }
 }
 
 export class FreebuffExecutor extends BaseExecutor {
@@ -50,78 +72,118 @@ export class FreebuffExecutor extends BaseExecutor {
 
     const requestedModel = resolveFreebuffModel(input.model);
     if (!requestedModel) {
-      return { response: freebuffInvalidRequest("A Freebuff model is required") };
+      return {
+        response: freebuffInvalidRequest("A Freebuff model is required"),
+      };
     }
 
     const agentId = resolveFreebuffAgentId(requestedModel);
     if (!agentId) {
       return {
-        response: freebuffInvalidRequest(`Unsupported Freebuff model: ${requestedModel}`),
+        response: freebuffInvalidRequest(
+          `Unsupported Freebuff model: ${requestedModel}`
+        ),
       };
     }
 
     const client = new FreebuffClient();
-    let runId: string | null = null;
+    const runtime = getSharedFreebuffRuntime();
+    let permit: FreebuffRequestPermit | null = null;
+    let sessionLease: FreebuffSessionLease | null = null;
+    let runHandle: FreebuffRunHandle | null = null;
 
     try {
-      const admission = await client.admitSession(token, requestedModel, signal);
-      if (admission.status !== "active") {
-        return {
-          response: freebuffErrorResponse(
-            freebuffAdmissionError(admission.status, admission.retryAfterMs)
-          ),
-        };
-      }
+      permit = await runtime.scheduler.acquire(
+        freebuffCredentialKey(token),
+        signal
+      );
 
-      const run = await client.startRun(token, agentId, signal);
-      runId = run.runId;
+      sessionLease = await runtime.sessions.acquire({
+        client,
+        token,
+        model: requestedModel,
+        signal: permit.signal,
+      });
+
+      runHandle = await runtime.runs.start({
+        client,
+        token,
+        agentId,
+        signal: permit.signal,
+      });
 
       const upstreamBody = buildFreebuffChatBody({
         body,
         model: requestedModel,
         stream: stream !== false,
-        runId,
-        instanceId: admission.instanceId,
+        runId: runHandle.runId,
+        instanceId: sessionLease.instanceId,
       });
+
       if (!upstreamBody) {
-        void client.finishRun({ token, runId, status: "failed" }).catch(() => {});
-        return { response: freebuffInvalidRequest("Freebuff request body must be a JSON object") };
+        await runHandle.finalize("failed");
+        await releaseLocalResources(sessionLease, permit);
+        sessionLease = null;
+        permit = null;
+        return {
+          response: freebuffInvalidRequest(
+            "Freebuff request body must be a JSON object"
+          ),
+        };
       }
 
       const response = await client.chatCompletion({
         token,
         agentId,
-        runId,
-        instanceId: admission.instanceId,
+        runId: runHandle.runId,
+        instanceId: sessionLease.instanceId,
         body: upstreamBody,
-        signal,
+        signal: permit.signal,
       });
 
       if (!response.ok) {
-        void client.finishRun({ token, runId, status: "failed" }).catch(() => {});
+        await runHandle.finalize("failed");
+        await releaseLocalResources(sessionLease, permit);
+        sessionLease = null;
+        permit = null;
         return {
           response: freebuffErrorResponse(
             freebuffUpstreamStatusError(
               "chat completion",
               response.status,
-              parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
+              parseFreebuffRetryAfterMs(
+                response.headers.get("retry-after")
+              )
             )
           ),
         };
       }
 
-      // Packet 3 owns response-body/stream lifetime. Until that lands, preserve the
-      // existing FINISH timing while making every pre-stream terminal path truthful.
-      void client.finishRun({ token, runId, status: "completed" }).catch(() => {});
+      const heldLease = sessionLease;
+      const heldPermit = permit;
+      sessionLease = null;
+      permit = null;
 
-      return { response };
+      return {
+        response: runHandle.bindResponse(response, {
+          signal: heldPermit.signal,
+          onSettled: () =>
+            releaseLocalResources(heldLease, heldPermit),
+        }),
+      };
     } catch (error) {
       const freebuffError = unexpectedFreebuffError("request", error);
-      if (runId) {
-        const finishStatus = freebuffError.kind === "aborted" ? "cancelled" : "failed";
-        void client.finishRun({ token, runId, status: finishStatus }).catch(() => {});
+
+      if (runHandle) {
+        await runHandle.finalize(
+          freebuffError.kind === "aborted" ? "cancelled" : "failed"
+        );
       }
-      return { response: freebuffErrorResponse(freebuffError) };
+      await releaseLocalResources(sessionLease, permit);
+
+      return {
+        response: freebuffErrorResponse(freebuffError),
+      };
     }
   }
 }
