@@ -1,0 +1,10 @@
+: fixture tool stream; synthetic and credential-free
+
+data: {"id":"fixture-completion-tool-001","object":"chat.completion.chunk","model":"fixture/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"fixture-call-001","type":"function","function":{"name":"fixture_tool","arguments":"{\"path\""}}]}}]}
+
+data: {"id":"fixture-completion-tool-001","object":"chat.completion.chunk","model":"fixture/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"README.md\"}"}}]}}]}
+
+data: {"id":"fixture-completion-tool-001","object":"chat.completion.chunk","model":"fixture/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+

@@ -1,0 +1,16 @@
+{
+  "_fixture": "synthetic",
+  "id": "fixture-completion-001",
+  "object": "chat.completion",
+  "model": "deepseek/deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "fixture response"
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}

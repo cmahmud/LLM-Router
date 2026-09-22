@@ -1,0 +1,10 @@
+: fixture stream; synthetic and credential-free
+
+data: {"id":"fixture-completion-001","object":"chat.completion.chunk","model":"deepseek/deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"fixture"}}]}
+
+data: {"id":"fixture-completion-001","object":"chat.completion.chunk","model":"deepseek/deepseek-v4-flash","choices":[{"index":0,"delta":{"content":" response"}}]}
+
+data: {"id":"fixture-completion-001","object":"chat.completion.chunk","model":"deepseek/deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}
+
+data: [DONE]
+

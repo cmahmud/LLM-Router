@@ -1,0 +1,7 @@
+{
+  "_fixture": "synthetic",
+  "error": {
+    "code": "fixture_upstream_failure",
+    "message": "synthetic upstream diagnostic; response body must be sanitized"
+  }
+}

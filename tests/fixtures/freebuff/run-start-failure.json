@@ -1,0 +1,7 @@
+{
+  "_fixture": "synthetic",
+  "error": {
+    "code": "run_rejected",
+    "message": "synthetic run rejected"
+  }
+}
