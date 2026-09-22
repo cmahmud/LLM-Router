@@ -133,7 +133,8 @@ P5 is integrated into `dev`; the feature branch preserves its dependency history
 
 P6 is isolated on `freebuff-p6-deployment-readiness`, based on integrated `dev` at
 `cd6c254bbab77e723830a3758d1ad188d3662e6e`. The initial implementation/documentation checkpoint is `55e345d6bd09cee15c065096595bc03ef20c7ac9`; the bounded-harness cleanup follow-up is
-`a76814f7aa5511bcd84dfcefa62ee9fc5114b134`. Only the bounded live harness,
+`a76814f7aa5511bcd84dfcefa62ee9fc5114b134`; the verified-runtime path correction is
+`fa5a8d7218a1db2a2e63f65679edd5ece9da5338`. Only the bounded live harness,
 deployment/rollback operations document, deployment decision, and this gate
 record were added; P2–P5 code and `dev` were not modified.
 
