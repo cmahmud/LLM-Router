@@ -57,25 +57,17 @@ export class FreebuffRequestScheduler {
 
   constructor(options: FreebuffRequestSchedulerOptions = {}) {
     this.maxGlobal = options.maxGlobal ?? DEFAULT_MAX_GLOBAL;
-    this.maxPerCredential =
-      options.maxPerCredential ?? DEFAULT_MAX_PER_CREDENTIAL;
+    this.maxPerCredential = options.maxPerCredential ?? DEFAULT_MAX_PER_CREDENTIAL;
     this.maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED;
     this.waitTimeoutMs = options.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   }
 
-  acquire(
-    credentialKey: string,
-    signal?: AbortSignal | null
-  ): Promise<FreebuffRequestPermit> {
+  acquire(credentialKey: string, signal?: AbortSignal | null): Promise<FreebuffRequestPermit> {
     if (this.closed) {
-      return Promise.reject(
-        schedulerError("Freebuff request scheduler is closed")
-      );
+      return Promise.reject(schedulerError("Freebuff request scheduler is closed"));
     }
     if (signal?.aborted) {
-      return Promise.reject(
-        schedulerError("Freebuff request was aborted", 499)
-      );
+      return Promise.reject(schedulerError("Freebuff request was aborted", 499));
     }
 
     if (this.canActivate(credentialKey)) {
@@ -83,9 +75,7 @@ export class FreebuffRequestScheduler {
     }
 
     if (this.queue.length >= this.maxQueued) {
-      return Promise.reject(
-        schedulerError("Freebuff concurrency queue is full")
-      );
+      return Promise.reject(schedulerError("Freebuff concurrency queue is full"));
     }
 
     return new Promise<FreebuffRequestPermit>((resolve, reject) => {
@@ -100,10 +90,10 @@ export class FreebuffRequestScheduler {
       waiter.timer = setTimeout(() => {
         if (!this.removeWaiter(waiter)) return;
         reject(
-          new FreebuffClientError(
-            "Freebuff concurrency wait timed out",
-            { status: 504, kind: "timeout" }
-          )
+          new FreebuffClientError("Freebuff concurrency wait timed out", {
+            status: 504,
+            kind: "timeout",
+          })
         );
       }, this.waitTimeoutMs);
 
@@ -129,8 +119,7 @@ export class FreebuffRequestScheduler {
   private canActivate(credentialKey: string): boolean {
     return (
       this.active < this.maxGlobal &&
-      (this.activeByCredential.get(credentialKey) ?? 0) <
-        this.maxPerCredential
+      (this.activeByCredential.get(credentialKey) ?? 0) < this.maxPerCredential
     );
   }
 
@@ -163,8 +152,7 @@ export class FreebuffRequestScheduler {
 
       this.activePermits.delete(id);
       this.active = Math.max(0, this.active - 1);
-      const nextCount =
-        (this.activeByCredential.get(credentialKey) ?? 1) - 1;
+      const nextCount = (this.activeByCredential.get(credentialKey) ?? 1) - 1;
       if (nextCount <= 0) {
         this.activeByCredential.delete(credentialKey);
       } else {
@@ -183,8 +171,7 @@ export class FreebuffRequestScheduler {
       callerAbortListener = () => {
         if (!controller.signal.aborted) {
           controller.abort(
-            callerSignal.reason ??
-              new DOMException("Freebuff request aborted", "AbortError")
+            callerSignal.reason ?? new DOMException("Freebuff request aborted", "AbortError")
           );
         }
         // Keep the permit held until the executor/run lifecycle releases it.
@@ -220,24 +207,18 @@ export class FreebuffRequestScheduler {
     if (this.closed) return;
 
     while (this.active < this.maxGlobal) {
-      const index = this.queue.findIndex((waiter) =>
-        this.canActivate(waiter.credentialKey)
-      );
+      const index = this.queue.findIndex((waiter) => this.canActivate(waiter.credentialKey));
       if (index < 0) return;
 
       const [waiter] = this.queue.splice(index, 1);
       this.clearWaiter(waiter);
 
       if (waiter.signal?.aborted) {
-        waiter.reject(
-          schedulerError("Freebuff queued request was aborted", 499)
-        );
+        waiter.reject(schedulerError("Freebuff queued request was aborted", 499));
         continue;
       }
 
-      waiter.resolve(
-        this.activate(waiter.credentialKey, waiter.signal)
-      );
+      waiter.resolve(this.activate(waiter.credentialKey, waiter.signal));
     }
   }
 
@@ -248,16 +229,12 @@ export class FreebuffRequestScheduler {
     const queued = this.queue.splice(0);
     for (const waiter of queued) {
       this.clearWaiter(waiter);
-      waiter.reject(
-        schedulerError("Freebuff request scheduler shut down")
-      );
+      waiter.reject(schedulerError("Freebuff request scheduler shut down"));
     }
 
     for (const permit of Array.from(this.activePermits.values())) {
       if (!permit.controller.signal.aborted) {
-        permit.controller.abort(
-          new DOMException("Freebuff scheduler shutdown", "AbortError")
-        );
+        permit.controller.abort(new DOMException("Freebuff scheduler shutdown", "AbortError"));
       }
       permit.release();
     }
@@ -267,15 +244,11 @@ export class FreebuffRequestScheduler {
     const queued = this.queue.splice(0);
     for (const waiter of queued) {
       this.clearWaiter(waiter);
-      waiter.reject(
-        schedulerError("Freebuff request scheduler reset")
-      );
+      waiter.reject(schedulerError("Freebuff request scheduler reset"));
     }
     for (const permit of Array.from(this.activePermits.values())) {
       if (!permit.controller.signal.aborted) {
-        permit.controller.abort(
-          new DOMException("Freebuff scheduler reset", "AbortError")
-        );
+        permit.controller.abort(new DOMException("Freebuff scheduler reset", "AbortError"));
       }
       permit.release();
     }

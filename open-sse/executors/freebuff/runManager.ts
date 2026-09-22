@@ -1,9 +1,6 @@
 import type { FreebuffClient } from "./client.ts";
 
-export type FreebuffRunClient = Pick<
-  FreebuffClient,
-  "startRun" | "finishRun"
->;
+export type FreebuffRunClient = Pick<FreebuffClient, "startRun" | "finishRun">;
 
 export type FreebuffRunStatus = "completed" | "failed" | "cancelled";
 
@@ -37,10 +34,7 @@ export class FreebuffRunHandle {
     return this.finalization;
   }
 
-  bindResponse(
-    response: Response,
-    options: BindFreebuffResponseOptions = {}
-  ): Response {
+  bindResponse(response: Response, options: BindFreebuffResponseOptions = {}): Response {
     const reader = response.body?.getReader();
     let settled: Promise<void> | null = null;
     let controllerClosed = false;
@@ -83,8 +77,7 @@ export class FreebuffRunHandle {
         if (!options.signal) return;
         abortListener = () => {
           const reason =
-            options.signal?.reason ??
-            new DOMException("Freebuff response aborted", "AbortError");
+            options.signal?.reason ?? new DOMException("Freebuff response aborted", "AbortError");
           void reader.cancel(reason).catch(() => {});
           void settle("cancelled").finally(() => {
             if (controllerClosed) return;
@@ -150,15 +143,7 @@ export class FreebuffRunManager {
     agentId: string;
     signal?: AbortSignal | null;
   }): Promise<FreebuffRunHandle> {
-    const run = await params.client.startRun(
-      params.token,
-      params.agentId,
-      params.signal
-    );
-    return new FreebuffRunHandle(
-      params.client,
-      params.token,
-      run.runId
-    );
+    const run = await params.client.startRun(params.token, params.agentId, params.signal);
+    return new FreebuffRunHandle(params.client, params.token, run.runId);
   }
 }

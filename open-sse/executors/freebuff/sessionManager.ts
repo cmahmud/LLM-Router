@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { FreebuffClient } from "./client.ts";
-import {
-  FreebuffClientError,
-  freebuffAdmissionError,
-} from "./errors.ts";
+import { FreebuffClientError, freebuffAdmissionError } from "./errors.ts";
 import type { FreebuffAdmission } from "./types.ts";
 
 export type FreebuffSessionClient = Pick<
@@ -89,10 +86,7 @@ function isAmbiguousAdmissionError(error: unknown): error is FreebuffClientError
   );
 }
 
-async function waitForShared<T>(
-  promise: Promise<T>,
-  signal?: AbortSignal | null
-): Promise<T> {
+async function waitForShared<T>(promise: Promise<T>, signal?: AbortSignal | null): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) throw abortedError();
 
@@ -164,36 +158,22 @@ export class FreebuffSessionManager {
     if (record.owned) {
       if (record.owned.model !== params.model) {
         if (record.leaseCount > 0) {
-          throw conflictError(
-            "Cannot switch the Freebuff model while the owned session is leased"
-          );
+          throw conflictError("Cannot switch the Freebuff model while the owned session is leased");
         }
         const owned = await waitForShared(
           this.beginTransition(record, params.model, async () => {
             await this.releaseOwned(record);
-            return this.establishSession(
-              params.client,
-              params.token,
-              params.model
-            );
+            return this.establishSession(params.client, params.token, params.model);
           }),
           params.signal
         );
         return this.createLease(accountKey, record, owned);
       }
 
-      if (
-        record.owned.expiresAtMs !== undefined &&
-        record.owned.expiresAtMs <= this.now()
-      ) {
+      if (record.owned.expiresAtMs !== undefined && record.owned.expiresAtMs <= this.now()) {
         const owned = await waitForShared(
           this.beginTransition(record, params.model, () =>
-            this.reconcileExpiredSession(
-              record,
-              params.client,
-              params.token,
-              params.model
-            )
+            this.reconcileExpiredSession(record, params.client, params.token, params.model)
           ),
           params.signal
         );
@@ -221,9 +201,7 @@ export class FreebuffSessionManager {
     const promise = (async () => {
       const owned = await operation();
       if (this.closed || this.epoch !== operationEpoch) {
-        void owned.client
-          .releaseSession(owned.token, owned.instanceId)
-          .catch(() => {});
+        void owned.client.releaseSession(owned.token, owned.instanceId).catch(() => {});
         throw closedError();
       }
       record.owned = owned;
@@ -238,12 +216,14 @@ export class FreebuffSessionManager {
 
     record.inFlight = promise;
     record.inFlightModel = model;
-    void promise.finally(() => {
-      if (record.inFlight === promise) {
-        record.inFlight = undefined;
-        record.inFlightModel = undefined;
-      }
-    }).catch(() => {});
+    void promise
+      .finally(() => {
+        if (record.inFlight === promise) {
+          record.inFlight = undefined;
+          record.inFlightModel = undefined;
+        }
+      })
+      .catch(() => {});
     return promise;
   }
 
@@ -260,9 +240,7 @@ export class FreebuffSessionManager {
       );
     }
     if (current.status === "ended" && sessionInstanceId(current)) {
-      throw conflictError(
-        "A Freebuff session is still draining upstream and cannot be taken over"
-      );
+      throw conflictError("A Freebuff session is still draining upstream and cannot be taken over");
     }
     if (current.status !== "none" && current.status !== "ended") {
       throw freebuffAdmissionError(current.status, current.retryAfterMs);
@@ -297,10 +275,7 @@ export class FreebuffSessionManager {
         throw error;
       }
 
-      throw freebuffAdmissionError(
-        reconciled.status,
-        reconciled.retryAfterMs
-      );
+      throw freebuffAdmissionError(reconciled.status, reconciled.retryAfterMs);
     }
   }
 
@@ -318,13 +293,8 @@ export class FreebuffSessionManager {
     const current = await client.getSession(token, previous.instanceId);
 
     if (current.status === "active") {
-      if (
-        current.instanceId !== previous.instanceId ||
-        current.model !== previous.model
-      ) {
-        throw conflictError(
-          "Freebuff session ownership changed during reconciliation"
-        );
+      if (current.instanceId !== previous.instanceId || current.model !== previous.model) {
+        throw conflictError("Freebuff session ownership changed during reconciliation");
       }
       return this.buildOwned(client, token, current);
     }
@@ -338,9 +308,7 @@ export class FreebuffSessionManager {
 
     if (current.status === "ended") {
       if (sessionInstanceId(current)) {
-        throw conflictError(
-          "Freebuff session expired but is still draining upstream"
-        );
+        throw conflictError("Freebuff session expired but is still draining upstream");
       }
       if (record.owned?.instanceId === previous.instanceId) {
         record.owned = undefined;
@@ -361,19 +329,12 @@ export class FreebuffSessionManager {
     admission: FreebuffAdmission
   ): Promise<OwnedSession> {
     if (admission.status !== "active") {
-      throw freebuffAdmissionError(
-        admission.status,
-        admission.retryAfterMs
-      );
+      throw freebuffAdmissionError(admission.status, admission.retryAfterMs);
     }
 
     if (admission.model !== requestedModel) {
-      await client
-        .releaseSession(token, admission.instanceId)
-        .catch(() => {});
-      throw conflictError(
-        "Freebuff admitted a different model than the one requested"
-      );
+      await client.releaseSession(token, admission.instanceId).catch(() => {});
+      throw conflictError("Freebuff admitted a different model than the one requested");
     }
 
     return this.buildOwned(client, token, admission);
@@ -410,21 +371,14 @@ export class FreebuffSessionManager {
         if (released) return;
         released = true;
         record.leaseCount = Math.max(0, record.leaseCount - 1);
-        if (
-          record.leaseCount === 0 &&
-          !this.closed &&
-          this.records.get(accountKey) === record
-        ) {
+        if (record.leaseCount === 0 && !this.closed && this.records.get(accountKey) === record) {
           await this.scheduleIdleRelease(record);
         }
       },
     };
   }
 
-  private async scheduleIdleRelease(
-    record: SessionRecord,
-    deferZero = false
-  ): Promise<void> {
+  private async scheduleIdleRelease(record: SessionRecord, deferZero = false): Promise<void> {
     this.clearIdleTimer(record);
     if (!record.owned) return;
 
@@ -433,11 +387,14 @@ export class FreebuffSessionManager {
       return;
     }
 
-    record.idleTimer = setTimeout(() => {
-      record.idleTimer = undefined;
-      if (record.leaseCount !== 0) return;
-      void this.releaseOwned(record).catch(() => {});
-    }, Math.max(0, this.idleReleaseMs));
+    record.idleTimer = setTimeout(
+      () => {
+        record.idleTimer = undefined;
+        if (record.leaseCount !== 0) return;
+        void this.releaseOwned(record).catch(() => {});
+      },
+      Math.max(0, this.idleReleaseMs)
+    );
   }
 
   private clearIdleTimer(record: SessionRecord): void {

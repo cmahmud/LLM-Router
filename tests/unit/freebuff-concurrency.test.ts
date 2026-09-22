@@ -81,10 +81,7 @@ test("Freebuff request scheduler: queue is bounded at eight waiters", async () =
     })
   );
 
-  await assert.rejects(
-    scheduler.acquire("overflow"),
-    /queue.*full|capacity/i
-  );
+  await assert.rejects(scheduler.acquire("overflow"), /queue.*full|capacity/i);
   assert.equal(scheduler.stats().queued, 8);
 
   activeA.release();
@@ -107,9 +104,7 @@ test("Freebuff request scheduler: aborting a queued waiter removes it without di
   const cancelled = scheduler.acquire("cancel-me", controller.signal);
   const follower = scheduler.acquire("follower");
 
-  controller.abort(
-    new DOMException("fixture cancel", "AbortError")
-  );
+  controller.abort(new DOMException("fixture cancel", "AbortError"));
   await assert.rejects(cancelled, /aborted|cancel/i);
   assert.equal(scheduler.stats().queued, 1);
 
@@ -128,12 +123,10 @@ test("Freebuff request scheduler: shutdown aborts active permits and rejects all
   });
 
   const active = await scheduler.acquire("active");
-  const queuedOutcome = scheduler
-    .acquire("queued")
-    .then(
-      () => null,
-      (error) => error
-    );
+  const queuedOutcome = scheduler.acquire("queued").then(
+    () => null,
+    (error) => error
+  );
 
   await scheduler.shutdown();
   assert.equal(active.signal.aborted, true);
@@ -152,14 +145,10 @@ test("Freebuff request scheduler: queued waits are bounded", async () => {
   });
 
   const active = await scheduler.acquire("active");
-  await assert.rejects(
-    scheduler.acquire("times-out"),
-    /timed out|timeout/i
-  );
+  await assert.rejects(scheduler.acquire("times-out"), /timed out|timeout/i);
   active.release();
   await scheduler.shutdown();
 });
-
 
 test("Freebuff request scheduler: active caller abort keeps the permit held until lifecycle cleanup", async () => {
   const scheduler = new FreebuffRequestScheduler({

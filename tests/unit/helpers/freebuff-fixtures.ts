@@ -15,10 +15,7 @@ export interface FreebuffFetchStep {
   error?: Error;
 }
 
-const FIXTURE_DIR = join(
-  fileURLToPath(new URL(".", import.meta.url)),
-  "../../fixtures/freebuff"
-);
+const FIXTURE_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "../../fixtures/freebuff");
 
 export function readFreebuffFixture(name: string): string {
   return readFileSync(join(FIXTURE_DIR, name), "utf8");
@@ -28,17 +25,12 @@ export function readFreebuffFixtureJson<T = unknown>(name: string): T {
   return JSON.parse(readFreebuffFixture(name)) as T;
 }
 
-export function freebuffFixtureResponse(
-  name: string,
-  init: ResponseInit = {}
-): Response {
+export function freebuffFixtureResponse(name: string, init: ResponseInit = {}): Response {
   const isSse = name.endsWith(".sse");
   return new Response(readFreebuffFixture(name), {
     ...init,
     headers: {
-      "Content-Type": isSse
-        ? "text/event-stream"
-        : "application/json",
+      "Content-Type": isSse ? "text/event-stream" : "application/json",
       ...(init.headers || {}),
     },
   });
@@ -77,16 +69,11 @@ export function deferredFreebuffResponse(
       headers: { "Content-Type": "text/event-stream" },
     }),
     release: releaseGate,
-    fail: (
-      error = new Error("synthetic fixture stream failure")
-    ) => failGate(error),
+    fail: (error = new Error("synthetic fixture stream failure")) => failGate(error),
   };
 }
 
-function matches(
-  matcher: FreebuffFetchStep["match"],
-  call: FreebuffFetchCall
-): boolean {
+function matches(matcher: FreebuffFetchStep["match"], call: FreebuffFetchCall): boolean {
   if (!matcher) return true;
   if (matcher instanceof RegExp) return matcher.test(call.url);
   return matcher(call);
@@ -102,10 +89,9 @@ function defaultFreebuffFallback(call: FreebuffFetchCall): Response {
     });
   }
 
-  return new Response(
-    JSON.stringify({ _fixture: "synthetic", ok: true }),
-    { headers: { "Content-Type": "application/json" } }
-  );
+  return new Response(JSON.stringify({ _fixture: "synthetic", ok: true }), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export function createFreebuffFetchMock(
@@ -118,10 +104,7 @@ export function createFreebuffFetchMock(
   const pending = [...steps];
   const calls: FreebuffFetchCall[] = [];
 
-  const fetchMock: typeof globalThis.fetch = async (
-    input,
-    init = {}
-  ) => {
+  const fetchMock: typeof globalThis.fetch = async (input, init = {}) => {
     const request = input instanceof Request ? input : undefined;
     const url = request?.url || String(input);
     const requestInit: RequestInit = {
@@ -134,8 +117,7 @@ export function createFreebuffFetchMock(
         : {}),
       ...init,
     };
-    const bodyText =
-      typeof requestInit.body === "string" ? requestInit.body : "";
+    const bodyText = typeof requestInit.body === "string" ? requestInit.body : "";
     let bodyJson: unknown = undefined;
     if (bodyText) {
       try {
@@ -147,27 +129,18 @@ export function createFreebuffFetchMock(
     const call = { url, init: requestInit, bodyText, bodyJson };
     calls.push(call);
 
-    const index = pending.findIndex((step) =>
-      matches(step.match, call)
-    );
+    const index = pending.findIndex((step) => matches(step.match, call));
     if (index >= 0) {
       const step = pending.splice(index, 1)[0];
       if (step.error) throw step.error;
       const response = step.response;
-      return typeof response === "function"
-        ? await response()
-        : response!;
+      return typeof response === "function" ? await response() : response!;
     }
 
     if (fallback) {
-      const response =
-        typeof fallback === "function"
-          ? await fallback()
-          : fallback.clone();
+      const response = typeof fallback === "function" ? await fallback() : fallback.clone();
       if (!response) {
-        throw new Error(
-          `No synthetic response configured for ${url}`
-        );
+        throw new Error(`No synthetic response configured for ${url}`);
       }
       return response;
     }

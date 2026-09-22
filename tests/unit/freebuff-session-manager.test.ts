@@ -41,9 +41,7 @@ test("Freebuff session manager: duplicate tokens share one single-flight admissi
   const manager = new FreebuffSessionManager({ idleReleaseMs: 60_000 });
   const token = "fixture-shared-token";
   const model = "deepseek/deepseek-v4-flash";
-  const leases = Array.from({ length: 20 }, () =>
-    manager.acquire({ client, token, model })
-  );
+  const leases = Array.from({ length: 20 }, () => manager.acquire({ client, token, model }));
 
   await Promise.resolve();
   assert.equal(getCalls, 1);
@@ -234,14 +232,8 @@ test("Freebuff session manager: model switch is refused while an owned session i
 });
 
 test("Freebuff session manager: credential keys share duplicate tokens but not refreshed generations", () => {
-  assert.equal(
-    freebuffCredentialKey("same-token"),
-    freebuffCredentialKey("same-token")
-  );
-  assert.notEqual(
-    freebuffCredentialKey("old-token"),
-    freebuffCredentialKey("new-token")
-  );
+  assert.equal(freebuffCredentialKey("same-token"), freebuffCredentialKey("same-token"));
+  assert.notEqual(freebuffCredentialKey("old-token"), freebuffCredentialKey("new-token"));
   assert.doesNotMatch(freebuffCredentialKey("same-token"), /same-token/);
 });
 
@@ -320,7 +312,9 @@ test("Freebuff session manager: leader-only abort still idles out an admission t
     instanceId: "fixture-abandoned-instance",
     model,
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The zero-idle cleanup is scheduled after the abandoned shared admission
+  // settles; allow that timer and its microtask to run before observing it.
+  await new Promise((resolve) => setTimeout(resolve, 10));
 
   assert.deepEqual(deletes, ["fixture-abandoned-instance"]);
   await manager.shutdown();
@@ -390,4 +384,3 @@ test("Freebuff session manager: acquire waits for idle cleanup before reusing a 
   await second.release();
   await manager.shutdown();
 });
-

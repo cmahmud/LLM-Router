@@ -12,14 +12,8 @@ import {
   resolveFreebuffAgentId,
   resolveFreebuffModel,
 } from "./freebuff/request.ts";
-import {
-  freebuffCredentialKey,
-  type FreebuffSessionLease,
-} from "./freebuff/sessionManager.ts";
-import {
-  getSharedFreebuffRuntime,
-  type FreebuffRequestPermit,
-} from "./freebuff/runtime.ts";
+import { freebuffCredentialKey, type FreebuffSessionLease } from "./freebuff/sessionManager.ts";
+import { getSharedFreebuffRuntime, type FreebuffRequestPermit } from "./freebuff/runtime.ts";
 import type { FreebuffRunHandle } from "./freebuff/runManager.ts";
 
 function resolveToken(input: ExecuteInput): string | null {
@@ -28,10 +22,7 @@ function resolveToken(input: ExecuteInput): string | null {
   return token;
 }
 
-function unexpectedFreebuffError(
-  operation: string,
-  error: unknown
-): FreebuffClientError {
+function unexpectedFreebuffError(operation: string, error: unknown): FreebuffClientError {
   if (error instanceof FreebuffClientError) return error;
   return new FreebuffClientError(`Freebuff ${operation} failed`, {
     status: 502,
@@ -80,9 +71,7 @@ export class FreebuffExecutor extends BaseExecutor {
     const agentId = resolveFreebuffAgentId(requestedModel);
     if (!agentId) {
       return {
-        response: freebuffInvalidRequest(
-          `Unsupported Freebuff model: ${requestedModel}`
-        ),
+        response: freebuffInvalidRequest(`Unsupported Freebuff model: ${requestedModel}`),
       };
     }
 
@@ -93,10 +82,7 @@ export class FreebuffExecutor extends BaseExecutor {
     let runHandle: FreebuffRunHandle | null = null;
 
     try {
-      permit = await runtime.scheduler.acquire(
-        freebuffCredentialKey(token),
-        signal
-      );
+      permit = await runtime.scheduler.acquire(freebuffCredentialKey(token), signal);
 
       sessionLease = await runtime.sessions.acquire({
         client,
@@ -126,9 +112,7 @@ export class FreebuffExecutor extends BaseExecutor {
         sessionLease = null;
         permit = null;
         return {
-          response: freebuffInvalidRequest(
-            "Freebuff request body must be a JSON object"
-          ),
+          response: freebuffInvalidRequest("Freebuff request body must be a JSON object"),
         };
       }
 
@@ -151,9 +135,7 @@ export class FreebuffExecutor extends BaseExecutor {
             freebuffUpstreamStatusError(
               "chat completion",
               response.status,
-              parseFreebuffRetryAfterMs(
-                response.headers.get("retry-after")
-              )
+              parseFreebuffRetryAfterMs(response.headers.get("retry-after"))
             )
           ),
         };
@@ -167,17 +149,14 @@ export class FreebuffExecutor extends BaseExecutor {
       return {
         response: runHandle.bindResponse(response, {
           signal: heldPermit.signal,
-          onSettled: () =>
-            releaseLocalResources(heldLease, heldPermit),
+          onSettled: () => releaseLocalResources(heldLease, heldPermit),
         }),
       };
     } catch (error) {
       const freebuffError = unexpectedFreebuffError("request", error);
 
       if (runHandle) {
-        await runHandle.finalize(
-          freebuffError.kind === "aborted" ? "cancelled" : "failed"
-        );
+        await runHandle.finalize(freebuffError.kind === "aborted" ? "cancelled" : "failed");
       }
       await releaseLocalResources(sessionLease, permit);
 
