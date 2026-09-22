@@ -8,6 +8,7 @@ import { APP_CONFIG } from "@/shared/constants/config";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { isAuthenticated } from "@/shared/utils/apiAuth";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import { getFreebuffHealthForMonitoring } from "@omniroute/open-sse/services/freebuffHealth.ts";
 
 /**
  * GET /api/monitoring/health — System health overview
@@ -102,6 +103,7 @@ export async function GET(request: Request) {
       adaptiveAdmission: null,
       chatAdmission: null,
       dedup: { inflightRequests: 0 },
+      freebuff: getFreebuffHealthForMonitoring(false),
     });
   }
 }
@@ -247,6 +249,13 @@ async function rebuildHealthPayload(): Promise<unknown> {
   // the DB — a monitoring read stays cheap. Additive key, nothing moves.
   const walMaintenance = readHealthValue("wal maintenance", () => getWalMaintenanceState(), null);
 
+  const freebuffConfigured = connections.some((connection) => {
+    const provider = String(connection.provider ?? "")
+      .trim()
+      .toLowerCase();
+    return (provider === "freebuff" || provider === "fb") && connection.isActive !== false;
+  });
+
   const payload = buildHealthPayload({
     appVersion: APP_CONFIG.version,
     // #10427: surface the artifact's git SHA so a deployment can be audited over HTTP
@@ -274,10 +283,18 @@ async function rebuildHealthPayload(): Promise<unknown> {
     walMaintenance,
   });
 
+  const enrichedPayload = {
+    ...(payload as Record<string, unknown>),
+    freebuff: getFreebuffHealthForMonitoring(freebuffConfigured),
+  };
+
   if (generation === healthPayloadCacheGeneration) {
-    healthPayloadCache = { payload, expiresAt: Date.now() + HEALTH_PAYLOAD_TTL_MS };
+    healthPayloadCache = {
+      payload: enrichedPayload,
+      expiresAt: Date.now() + HEALTH_PAYLOAD_TTL_MS,
+    };
   }
-  return payload;
+  return enrichedPayload;
 }
 
 /**

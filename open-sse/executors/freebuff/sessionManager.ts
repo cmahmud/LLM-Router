@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { FreebuffClient } from "./client.ts";
 import { FreebuffClientError, freebuffAdmissionError } from "./errors.ts";
 import type { FreebuffAdmission } from "./types.ts";
+import { recordFreebuffPhaseError } from "./health.ts";
 
 export type FreebuffSessionClient = Pick<
   FreebuffClient,
@@ -204,19 +205,24 @@ export class FreebuffSessionManager {
   ): Promise<OwnedSession> {
     const operationEpoch = this.epoch;
     const promise = (async () => {
-      const owned = await operation();
-      if (this.closed || this.epoch !== operationEpoch) {
-        void owned.client.releaseSession(owned.token, owned.instanceId).catch(() => {});
-        throw closedError();
+      try {
+        const owned = await operation();
+        if (this.closed || this.epoch !== operationEpoch) {
+          void owned.client.releaseSession(owned.token, owned.instanceId).catch(() => {});
+          throw closedError();
+        }
+        record.owned = owned;
+        if (record.leaseCount === 0) {
+          // A successful transition may still have callers waiting to turn the
+          // shared result into a lease. For a zero idle timeout, defer cleanup
+          // one task so those waiters get a chance to claim the session first.
+          await this.scheduleIdleRelease(record, true);
+        }
+        return owned;
+      } catch (error) {
+        recordFreebuffPhaseError("session", error);
+        throw error;
       }
-      record.owned = owned;
-      if (record.leaseCount === 0) {
-        // A successful transition may still have callers waiting to turn the
-        // shared result into a lease. For a zero idle timeout, defer cleanup
-        // one task so those waiters get a chance to claim the session first.
-        await this.scheduleIdleRelease(record, true);
-      }
-      return owned;
     })();
 
     record.inFlight = promise;
@@ -427,6 +433,7 @@ export class FreebuffSessionManager {
         }
       })
       .catch((error) => {
+        recordFreebuffPhaseError("cleanup", error);
         if (record.owned?.instanceId === owned.instanceId) {
           // Cleanup failures are ambiguous: the upstream may have processed
           // DELETE even if the response was lost. Force reconciliation before
@@ -443,6 +450,32 @@ export class FreebuffSessionManager {
 
     record.cleanupPromise = cleanup;
     return cleanup;
+  }
+
+  stats(): {
+    accounts: number;
+    owned: number;
+    leased: number;
+    inFlight: number;
+    cleaning: number;
+  } {
+    let owned = 0;
+    let leased = 0;
+    let inFlight = 0;
+    let cleaning = 0;
+    for (const record of this.records.values()) {
+      if (record.owned) owned += 1;
+      leased += record.leaseCount;
+      if (record.inFlight) inFlight += 1;
+      if (record.cleanupPromise) cleaning += 1;
+    }
+    return {
+      accounts: this.records.size,
+      owned,
+      leased,
+      inFlight,
+      cleaning,
+    };
   }
 
   async shutdown(timeoutMs = 5_000): Promise<void> {

@@ -1,4 +1,5 @@
 import type { FreebuffClient } from "./client.ts";
+import { recordFreebuffPhaseError } from "./health.ts";
 import { wrapFreebuffResponse, type FreebuffResponseProtocol } from "./responseStream.ts";
 import type { FreebuffResponseSettlement } from "./responseStream.ts";
 
@@ -43,7 +44,9 @@ export class FreebuffRunHandle {
         runId: this.runId,
         status,
       })
-      .catch(() => {});
+      .catch((error) => {
+        recordFreebuffPhaseError("run", error);
+      });
     return this.finalization;
   }
 

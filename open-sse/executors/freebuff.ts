@@ -15,6 +15,7 @@ import {
 import { freebuffCredentialKey, type FreebuffSessionLease } from "./freebuff/sessionManager.ts";
 import { getSharedFreebuffRuntime, type FreebuffRequestPermit } from "./freebuff/runtime.ts";
 import type { FreebuffRunHandle } from "./freebuff/runManager.ts";
+import { recordFreebuffPhaseError, recordFreebuffRequestResult } from "./freebuff/health.ts";
 
 function resolveToken(input: ExecuteInput): string | null {
   const token = input.credentials?.apiKey || input.credentials?.accessToken;
@@ -80,10 +81,14 @@ export class FreebuffExecutor extends BaseExecutor {
     let permit: FreebuffRequestPermit | null = null;
     let sessionLease: FreebuffSessionLease | null = null;
     let runHandle: FreebuffRunHandle | null = null;
+    let phase: "admission" | "session" | "run" | "chat" = "admission";
+    let failed = false;
+    const requestStartedAtMs = Date.now();
 
     try {
       permit = await runtime.scheduler.acquire(freebuffCredentialKey(token), signal);
 
+      phase = "session";
       sessionLease = await runtime.sessions.acquire({
         client,
         token,
@@ -91,6 +96,7 @@ export class FreebuffExecutor extends BaseExecutor {
         signal: permit.signal,
       });
 
+      phase = "run";
       runHandle = await runtime.runs.start({
         client,
         token,
@@ -98,6 +104,7 @@ export class FreebuffExecutor extends BaseExecutor {
         signal: permit.signal,
       });
 
+      phase = "chat";
       const upstreamBody = buildFreebuffChatBody({
         body,
         model: requestedModel,
@@ -107,6 +114,7 @@ export class FreebuffExecutor extends BaseExecutor {
       });
 
       if (!upstreamBody) {
+        failed = true;
         await runHandle.finalize("failed");
         await releaseLocalResources(sessionLease, permit);
         sessionLease = null;
@@ -126,6 +134,10 @@ export class FreebuffExecutor extends BaseExecutor {
       });
 
       if (!response.ok) {
+        failed = true;
+        recordFreebuffPhaseError("chat", {
+          kind: response.status >= 500 ? "upstream" : "auth",
+        });
         await runHandle.finalize("failed");
         await releaseLocalResources(sessionLease, permit);
         sessionLease = null;
@@ -154,6 +166,10 @@ export class FreebuffExecutor extends BaseExecutor {
         }),
       };
     } catch (error) {
+      failed = true;
+      if (phase === "run" || phase === "chat") {
+        recordFreebuffPhaseError(phase, error);
+      }
       const freebuffError = unexpectedFreebuffError("request", error);
 
       if (runHandle) {
@@ -164,6 +180,8 @@ export class FreebuffExecutor extends BaseExecutor {
       return {
         response: freebuffErrorResponse(freebuffError),
       };
+    } finally {
+      recordFreebuffRequestResult(failed ? "failure" : "success", Date.now() - requestStartedAtMs);
     }
   }
 }
