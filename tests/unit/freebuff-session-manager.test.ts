@@ -281,7 +281,6 @@ test("Freebuff session manager: idle release deletes only the owned instance", a
   await manager.shutdown();
 });
 
-
 test("Freebuff session manager: leader-only abort still idles out an admission that later succeeds", async () => {
   const admission = deferred<{
     status: "active";
