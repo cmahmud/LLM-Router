@@ -3,12 +3,13 @@ title: "LLM-Router: Project Status"
 lastUpdated: 2026-09-22
 ---
 
-# Status — Packet 3 (P2) lifecycle validation checkpoint
+# Status — Packet 4 (P3) streaming lifecycle candidate
 
-Phase 1 and Packets 1–2 remain complete on `dev`. The lifecycle/concurrency implementation is
-validated on the isolated `freebuff-p2-lifecycle` branch but is intentionally **not merged**.
-The validation branch head is `d9c59732ce91156076116699876958d7afad360f`; PR #1 remains draft and
-open against `dev` at `cb20bb8cb98b8f654aa104433a542a1c717a2af2`.
+Phase 1 and Packets 1–2 remain complete on `dev`. The validated P2 lifecycle checkpoint is
+`afe024054bdc1d0513a49228142d7df77c95813b` on `freebuff-p2-lifecycle`; PR #1 remains draft,
+open and unmerged against `dev` at `cb20bb8cb98b8f654aa104433a542a1c717a2af2`. This P3
+candidate is isolated on `freebuff-p3-streaming`, based exactly on that validated head, with
+implementation commit `3111a6f3a2942f111107aa17d414c05ed1405f9d`.
 
 This checkpoint does not certify permitted live FreeBuff model access or production deployment.
 
@@ -45,21 +46,19 @@ The branch was checked in a detached worktree on the ARM64 VPS using the existin
 `v24.13.0-linux-arm64` runtime and a read-only symlink to the already-installed project dependencies.
 
 - Focused FreeBuff command:
-  `node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/unit/freebuff-provider.test.ts tests/unit/freebuff-transport.test.ts tests/unit/freebuff-session-manager.test.ts tests/unit/freebuff-run-manager.test.ts tests/unit/freebuff-concurrency.test.ts tests/unit/freebuff-executor-lifecycle.test.ts`
-  - **42 passed, 0 failed**.
+  `node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/unit/freebuff-provider.test.ts tests/unit/freebuff-transport.test.ts tests/unit/freebuff-session-manager.test.ts tests/unit/freebuff-run-manager.test.ts tests/unit/freebuff-concurrency.test.ts tests/unit/freebuff-executor-lifecycle.test.ts tests/unit/freebuff-stream.test.ts`
+  - **53 passed, 0 failed** on ARM64.
 - Open-SSE typecheck: `npm run check:open-sse-typecheck`
   - **0 errors; pass**.
 - Core typecheck: `npm run typecheck:core`
   - **pass**.
-- Targeted ESLint on all changed lifecycle/FreeBuff files:
+- Targeted ESLint on the changed executor, run-manager, response-stream and test files:
   - **pass**.
-- Prettier check on all changed lifecycle/FreeBuff files:
+- Prettier check on the changed executor, run-manager, response-stream and test files:
   - **pass**.
-- `git diff --check origin/dev...origin/freebuff-p2-lifecycle`
-  - **pass** after the validation commit.
-- One timing-sensitive zero-idle regression initially failed because the test observed immediately before
-  the scheduled cleanup timer ran. The test now waits for the documented deferred cleanup task; the
-  rerun is the 42/42 result above. No live behavior or access-control workaround was added.
+- `git diff --check`:
+  - **pass**.
+- The prior P2 timing-only cleanup regression remains covered by the 53-test rerun. No live behavior or access-control workaround was added.
 
 ## Live behavior and limitations
 
@@ -72,10 +71,15 @@ The branch was checked in a detached worktree on the ARM64 VPS using the existin
   this branch does not spoof identity, rename tools, simulate engagement, bypass quotas or rotate
   accounts/IPs to evade restrictions.
 
-## Current incomplete packet
+## Packet 4 candidate (P3)
 
-Packet 4 (P3) remains open: pull-based SSE lifetime/error handling, cancellation after headers,
-tool-call continuity, malformed/truncated stream behavior and integration coverage through Chat.
+- Added a pull-based response wrapper that preserves raw SSE/JSON bytes while observing body lifetime.
+- Added bounded SSE parsing with split UTF-8, CRLF/CR/LF, comments, multiline data, terminal `[DONE]`,
+  malformed JSON, upstream error frames, truncated EOF and oversized-event rejection.
+- Added bounded non-streaming JSON validation and the same completed/failed/cancelled run settlement.
+- Propagated caller abort and downstream cancellation to the upstream reader, with finalize-once cleanup.
+- Added synthetic coverage for fragmented tool calls, terminal/error/truncation behavior and cancellation;
+  no credentials or live upstream calls are used.
 
 Packets 5–7 remain open for catalog discovery, Responses/Anthropic conformance and health, then ARM64
 build/runtime/deployment validation.
@@ -89,7 +93,7 @@ report or degrade that condition accurately rather than bypassing the restrictio
 
 ## Deployment state
 
-**Not deployed and not production-ready for FreeBuff.** The lifecycle branch is a tested candidate for
-review, not an authorization to merge or deploy. The primary VPS checkout at
+**Not deployed and not production-ready for FreeBuff.** The lifecycle PR remains a tested draft for
+review; the P3 streaming branch is a separate candidate and is not an authorization to merge or deploy. The primary VPS checkout at
 `/home/ubuntu/projects/llm-router-dev` remains clean on `dev`; validation ran in the separate
 `/home/ubuntu/projects/llm-router-p2-validation` worktree. GitHub remains the durable source of truth.
