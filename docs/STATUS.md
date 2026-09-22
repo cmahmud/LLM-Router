@@ -3,65 +3,51 @@ title: "LLM-Router: Project Status"
 lastUpdated: 2026-09-22
 ---
 
-# Status — Packet 4 (P3) streaming lifecycle candidate
+# Status — lifecycle and streaming integrated
 
-Phase 1 and Packets 1–2 remain complete on `dev`. The validated P2 lifecycle checkpoint is
-`afe024054bdc1d0513a49228142d7df77c95813b` on `freebuff-p2-lifecycle`; PR #1 remains draft,
-open and unmerged against `dev` at `cb20bb8cb98b8f654aa104433a542a1c717a2af2`. This P3
-candidate is isolated on `freebuff-p3-streaming`, based exactly on that validated head, with
-implementation commit `3111a6f3a2942f111107aa17d414c05ed1405f9d`, cleanup fix
-`c55000455bdb79cf1fba30d991da09ee7267aba7`, cancellation regression test
-`4a54022581e11cbd8c9c3c11a977e3a3c0754c2b` and expiry guard
-`2ae11c918e117ee83ab6b7348a648759a6714f91`.
+Phase 1, P2 lifecycle and P3 streaming are integrated into `dev` at
+`3497dfdc899f4f7fed69bb15a223a121174878de`. The fast-forward preserves the dependency order
+from the validated `freebuff-p2-lifecycle` checkpoint (`afe024054bdc1d0513a49228142d7df77c95813b`)
+through the validated `freebuff-p3-streaming` branch. PR #1 remains draft/open/unmerged and is
+now an historical lifecycle review boundary; no merge commit or force-push was used.
 
 This checkpoint does not certify permitted live FreeBuff model access or production deployment.
 
-## Completed
+## Integrated work
 
-### Phase 1 and Packets 1–2
+### P2 lifecycle
 
-- Preserved the pristine OmniRoute `release/v3.8.51` baseline.
-- Audited native routing, protocol translation, provider validation, FreeBuff behavior and relevant
-  official upstream source.
-- Selected the native OmniRoute integration path rather than a sidecar/proxy rewrite.
-- Added credential-free synthetic fixtures and injected-fetch helpers.
-- Added deterministic regressions for admission, run start, metadata integrity, stream lifetime and
-  error sanitization.
-- Added the typed transport/error boundary, dedicated admission path, read-only `/me` validation,
-  truthful START failure handling, reserved metadata protection and sanitized errors.
-
-### Packet 3 candidate (P2)
-
-- Added credential-fingerprint session ownership with single-flight admission.
-- Added bounded scheduling: one active completion per credential, two globally and eight queued.
-- Added caller-independent cancellation for shared admission and FIFO scheduling within a credential.
-- Added reconciliation for ambiguous admission outcomes without blind POST retries.
-- Refused takeover of unowned active sessions and model switches while a lease is live.
-- Added owned-instance-only idle release, cleanup/reacquire serialization, cleanup-failure reconciliation,
+- Credential-fingerprint session ownership with single-flight admission and read-only reconciliation.
+- Bounded scheduling: one active completion per credential, two globally and eight queued.
+- Caller-independent shared-admission cancellation, FIFO fairness per credential and bounded waits.
+- Refusal of unowned-session takeover and model switching while leased.
+- Owned-instance-only idle cleanup, cleanup/reacquire serialization, ambiguous-cleanup reconciliation,
   expiry-while-leased refusal and bounded shutdown.
-- Added finalize-once run handles and delayed FINISH until the response body reaches a terminal state.
-- Added regression coverage for cleanup/reacquire races, zero-idle admission, leader cancellation,
-  run cancellation and concurrency limits.
+- Finalize-once request runs with FINISH only after the response body reaches a terminal state.
+
+### P3 streaming
+
+- Pull-based response wrapping for SSE and non-streaming JSON that preserves downstream bytes.
+- Bounded UTF-8/SSE observation with CRLF/CR/LF, comments, multiline data, terminal `[DONE]`,
+  malformed/oversized/truncated streams and upstream error-frame detection.
+- Caller abort and downstream cancellation propagate to the upstream reader and finalize the run.
+- Tool-call fragments and names remain untouched; no signature-tool injection or tool renaming.
+- Validation failures cancel the upstream reader before local cleanup completes.
 
 ## Validation gate
 
-The branch was checked in a detached worktree on the ARM64 VPS using the existing
-`v24.13.0-linux-arm64` runtime and a read-only symlink to the already-installed project dependencies.
+Validated in the detached ARM64 VPS worktree using the existing `v24.13.0-linux-arm64` runtime
+and a read-only symlink to the installed dependencies:
 
-- Focused FreeBuff command:
-  `node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/unit/freebuff-provider.test.ts tests/unit/freebuff-transport.test.ts tests/unit/freebuff-session-manager.test.ts tests/unit/freebuff-run-manager.test.ts tests/unit/freebuff-concurrency.test.ts tests/unit/freebuff-executor-lifecycle.test.ts tests/unit/freebuff-stream.test.ts`
-  - **55 passed, 0 failed** on ARM64.
-- Open-SSE typecheck: `npm run check:open-sse-typecheck`
-  - **0 errors; pass**.
-- Core typecheck: `npm run typecheck:core`
-  - **pass**.
-- Targeted ESLint on the changed executor, run-manager, response-stream and test files:
-  - **pass**.
-- Prettier check on the changed executor, run-manager, response-stream and test files:
-  - **pass**.
-- `git diff --check`:
-  - **pass**.
-- The prior P2 timing-only cleanup regression remains covered by the 53-test rerun. No live behavior or access-control workaround was added.
+- Focused FreeBuff command covering provider, transport, lifecycle, concurrency, run, session and
+  stream tests: **55 passed, 0 failed**.
+- `npm run check:open-sse-typecheck`: **0 errors; pass**.
+- `npm run typecheck:core`: **pass**.
+- Targeted ESLint: **pass**.
+- Prettier check: **pass**.
+- `git diff --check`: **pass**.
+- Added expiry-while-leased regression after review found that concrete race; reran the full focused
+  suite successfully.
 
 ## Live behavior and limitations
 
@@ -70,34 +56,19 @@ The branch was checked in a detached worktree on the ARM64 VPS using the existin
 - Requested-model fidelity and third-party coding-client compatibility: **not verified**.
 - No token, cookie, session secret, auth file or personal identifier was committed.
 - No service, firewall, DNS, port or proxy configuration was changed on the VPS.
-- The official upstream restriction on foreign-client signals remains a real feasibility boundary;
-  this branch does not spoof identity, rename tools, simulate engagement, bypass quotas or rotate
-  accounts/IPs to evade restrictions.
+- The official foreign-client restriction remains a real feasibility boundary; no spoofing, tool
+  renaming, engagement simulation, quota/account/IP evasion or other bypass was added.
 
-## Packet 4 candidate (P3)
+## Next packet
 
-- Added a pull-based response wrapper that preserves raw SSE/JSON bytes while observing body lifetime.
-- Added bounded SSE parsing with split UTF-8, CRLF/CR/LF, comments, multiline data, terminal `[DONE]`,
-  malformed JSON, upstream error frames, truncated EOF and oversized-event rejection.
-- Added bounded non-streaming JSON validation and the same completed/failed/cancelled run settlement.
-- Propagated caller abort and downstream cancellation to the upstream reader, with finalize-once cleanup.
-- Added synthetic coverage for fragmented tool calls, terminal/error/truncation behavior and cancellation;
-  no credentials or live upstream calls are used.
-
-Packets 5–7 remain open for catalog discovery, Responses/Anthropic conformance and health, then ARM64
-build/runtime/deployment validation.
-
-## Current blocker
-
-There is no local implementation blocker for the next offline packet. The external blocker for any
-later live FreeBuff claim is a permitted third-party integration contract that allows the required
-client/protocol behavior. If legitimate access cannot provide a requested model, the router must
-report or degrade that condition accurately rather than bypassing the restriction.
+Packet P4 is authoritative FreeBuff model discovery. Create the isolated branch
+`freebuff-p4-model-discovery` from this `dev` head. Follow the audit/architecture decisions:
+resolve one official source revision, parse only a constrained data subset without evaluating fetched
+TypeScript, validate atomically, retain last-known-good data on failure, distinguish a valid empty
+catalog from a refresh failure, and synchronize `/v1/models` with executor acceptance.
 
 ## Deployment state
 
-**Not deployed and not production-ready for FreeBuff.** The lifecycle PR remains a tested draft for
-review; the P3 streaming branch is a separate candidate and is not an authorization to merge or deploy.
-The primary VPS checkout at `/home/ubuntu/projects/llm-router-dev` remains clean on `dev`; P2
-validation ran in `/home/ubuntu/projects/llm-router-p2-validation`, and P3 validation ran in
+**Not deployed and not production-ready for FreeBuff.** The primary VPS checkout at
+`/home/ubuntu/projects/llm-router-dev` remains clean on `dev`; validation ran in
 `/home/ubuntu/projects/llm-router-p3-streaming`. GitHub remains the durable source of truth.
