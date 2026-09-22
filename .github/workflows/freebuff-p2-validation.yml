@@ -1,4 +1,5 @@
 name: FreeBuff P2 Validation
+# Temporary branch-only validation; remove before merge.
 
 on:
   push:
