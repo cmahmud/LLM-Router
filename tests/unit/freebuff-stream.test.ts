@@ -170,6 +170,25 @@ test("Freebuff stream: malformed non-streaming JSON is failed", async () => {
   assert.deepEqual(statuses, ["failed"]);
 });
 
+test("Freebuff stream: validation failure cancels the upstream reader", async () => {
+  let cancelled = false;
+  const upstream = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("data: {not-json}\n\n"));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }),
+    { headers: { "Content-Type": "text/event-stream" } }
+  );
+  const wrapped = wrapFreebuffResponse(upstream, { protocol: "sse" });
+
+  await assert.rejects(wrapped.arrayBuffer(), /malformed JSON/i);
+  assert.equal(cancelled, true);
+});
+
 test("Freebuff stream: downstream cancellation cancels the upstream reader", async () => {
   let release!: () => void;
   let cancelled = false;
