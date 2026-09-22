@@ -94,6 +94,7 @@ report or degrade that condition accurately rather than bypassing the restrictio
 ## Deployment state
 
 **Not deployed and not production-ready for FreeBuff.** The lifecycle PR remains a tested draft for
-review; the P3 streaming branch is a separate candidate and is not an authorization to merge or deploy. The primary VPS checkout at
-`/home/ubuntu/projects/llm-router-dev` remains clean on `dev`; validation ran in the separate
-`/home/ubuntu/projects/llm-router-p2-validation` worktree. GitHub remains the durable source of truth.
+review; the P3 streaming branch is a separate candidate and is not an authorization to merge or deploy.
+The primary VPS checkout at `/home/ubuntu/projects/llm-router-dev` remains clean on `dev`; P2
+validation ran in `/home/ubuntu/projects/llm-router-p2-validation`, and P3 validation ran in
+`/home/ubuntu/projects/llm-router-p3-streaming`. GitHub remains the durable source of truth.
