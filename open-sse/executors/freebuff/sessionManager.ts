@@ -171,6 +171,11 @@ export class FreebuffSessionManager {
       }
 
       if (record.owned.expiresAtMs !== undefined && record.owned.expiresAtMs <= this.now()) {
+        if (record.leaseCount > 0) {
+          throw conflictError(
+            "Cannot acquire a Freebuff session after its owned instance expired while another request is leased"
+          );
+        }
         const owned = await waitForShared(
           this.beginTransition(record, params.model, () =>
             this.reconcileExpiredSession(record, params.client, params.token, params.model)
@@ -285,6 +290,12 @@ export class FreebuffSessionManager {
     token: string,
     model: string
   ): Promise<OwnedSession> {
+    if (record.leaseCount > 0) {
+      throw conflictError(
+        "Cannot reconcile an expired Freebuff session while another request is leased"
+      );
+    }
+
     const previous = record.owned;
     if (!previous) {
       return this.establishSession(client, token, model);

@@ -231,6 +231,49 @@ test("Freebuff session manager: model switch is refused while an owned session i
   await manager.shutdown();
 });
 
+test("Freebuff session manager: expiry cannot replace an instance while it is leased", async () => {
+  let admitCalls = 0;
+  const model = "deepseek/deepseek-v4-flash";
+  const client = {
+    async getSession() {
+      return { status: "none" as const };
+    },
+    async admitSession(_token: string, requestedModel: string) {
+      admitCalls += 1;
+      return {
+        status: "active" as const,
+        instanceId: "fixture-expiring-instance",
+        model: requestedModel,
+        expiresAt: "1970-01-01T00:00:01.000Z",
+      };
+    },
+    async releaseSession() {},
+  };
+
+  const manager = new FreebuffSessionManager({
+    idleReleaseMs: 60_000,
+    now: () => 2_000,
+  });
+  const lease = await manager.acquire({
+    client,
+    token: "fixture-expiry-token",
+    model,
+  });
+
+  await assert.rejects(
+    manager.acquire({
+      client,
+      token: "fixture-expiry-token",
+      model,
+    }),
+    /expired|leased|reconcile/i
+  );
+  assert.equal(admitCalls, 1);
+
+  await lease.release();
+  await manager.shutdown();
+});
+
 test("Freebuff session manager: credential keys share duplicate tokens but not refreshed generations", () => {
   assert.equal(freebuffCredentialKey("same-token"), freebuffCredentialKey("same-token"));
   assert.notEqual(freebuffCredentialKey("old-token"), freebuffCredentialKey("new-token"));
