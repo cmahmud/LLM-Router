@@ -179,9 +179,10 @@ record were added; P2–P5 code and `dev` were not modified.
   gateway credentials; values were never inspected. No live FreeBuff inference,
   third-party client smoke, or credential validation was performed.
 - `LIVE FREEBUFF VALIDATION BLOCKED: AUTHORIZED ACCESS REQUIRED`
-- No secrets were committed. A repository secret scan remains pending because
-  the VPS connector failed before it could be rerun; the changed diff contains
-  only placeholders and sanitized harness output fields.
+- No secrets were committed. A lightweight pattern scan of the four changed
+  remote files found no credential patterns; the repository gitleaks scan remains
+  pending because the VPS connector failed before it could be rerun. The changed
+  diff contains only placeholders and sanitized harness output fields.
 
 ### P6 classification
 
