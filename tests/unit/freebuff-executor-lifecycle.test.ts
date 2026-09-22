@@ -101,9 +101,8 @@ test("Freebuff P0 regression: START failure must stop before chat dispatch", asy
       match: (call) =>
         call.url.endsWith("/api/v1/agent-runs") &&
         (call.bodyJson as { action?: string })?.action === "START",
-      response: new Response(readFreebuffFixtureJson("run-start-failure.json"), {
+      response: freebuffFixtureResponse("run-start-failure.json", {
         status: 503,
-        headers: { "Content-Type": "application/json" },
       }),
     },
   ]);
