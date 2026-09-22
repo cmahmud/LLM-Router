@@ -34,6 +34,7 @@ function gatewayUrl() {
   try {
     const url = new URL(raw);
     if (url.username || url.password) return null;
+    if (!["http:", "https:"].includes(url.protocol)) return null;
     url.pathname = url.pathname.replace(/\/+$/, "");
     url.search = "";
     url.hash = "";
@@ -70,9 +71,32 @@ function category(error) {
   return "unexpected";
 }
 
+async function boundedText(response) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new SmokeError("response_too_large");
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function jsonBody(response) {
-  const text = await response.text();
-  if (Buffer.byteLength(text) > MAX_BODY_BYTES) throw new SmokeError("response_too_large");
+  const text = await boundedText(response);
   try {
     return JSON.parse(text);
   } catch {
@@ -84,7 +108,7 @@ async function boundedFetch(base, path, init, state, deadline) {
   if (Date.now() >= deadline) throw new SmokeError("suite_deadline");
   if (state.requests >= MAX_REQUESTS) throw new SmokeError("request_budget_exhausted");
   state.requests += 1;
-  const timeout = AbortSignal.timeout(state.timeoutMs);
+  const timeout = AbortSignal.timeout(Math.min(state.timeoutMs, Math.max(1, deadline - Date.now())));
   try {
     const response = await fetch(urlFor(base, path), {
       ...init,
@@ -120,6 +144,24 @@ async function consumeSse(response) {
   let frames = 0;
   let terminal = false;
   let returnedModel;
+  const processLine = (line) => {
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (!data) return;
+    frames += 1;
+    if (data === "[DONE]") {
+      terminal = true;
+      return;
+    }
+    try {
+      const parsed = JSON.parse(data);
+      if (typeof parsed?.model === "string") returnedModel = parsed.model;
+      if (parsed?.choices?.some?.((choice) => choice?.finish_reason)) terminal = true;
+      if (["response.completed", "message_stop"].includes(parsed?.type)) terminal = true;
+    } catch {
+      throw new SmokeError("malformed_sse");
+    }
+  };
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -132,25 +174,13 @@ async function consumeSse(response) {
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split(/\r\n|\n|\r/);
       buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (!data) continue;
-        frames += 1;
-        if (data === "[DONE]") {
-          terminal = true;
-          continue;
-        }
-        try {
-          const parsed = JSON.parse(data);
-          if (typeof parsed?.model === "string") returnedModel = parsed.model;
-          if (parsed?.choices?.some?.((choice) => choice?.finish_reason)) terminal = true;
-          if (["response.completed", "message_stop"].includes(parsed?.type)) terminal = true;
-        } catch {
-          throw new SmokeError("malformed_sse");
-        }
-      }
+      for (const line of lines) processLine(line);
     }
+    buffer += decoder.decode();
+    if (buffer) processLine(buffer);
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
   } finally {
     reader.releaseLock();
   }
@@ -236,7 +266,11 @@ async function main() {
     const call = message?.tool_calls?.[0];
     if (!call?.id || !call?.function?.name) return { result: "unsupported", errorCategory: "tool_call_not_returned" };
     if (call.function.name !== "report_status" || typeof call.function.arguments !== "string") throw new SmokeError("tool_call_shape");
-    JSON.parse(call.function.arguments);
+    try {
+      JSON.parse(call.function.arguments);
+    } catch {
+      throw new SmokeError("tool_arguments_malformed");
+    }
     const second = await post(base, "/v1/chat/completions", headers, {
       model,
       messages: [
@@ -273,25 +307,53 @@ async function main() {
     if (state.requests >= MAX_REQUESTS) throw new SmokeError("request_budget_exhausted");
     state.requests += 1;
     const controller = new AbortController();
-    const timeout = AbortSignal.timeout(state.timeoutMs);
-    let settled = false;
+    const timeout = AbortSignal.timeout(Math.min(state.timeoutMs, Math.max(1, deadline - Date.now())));
+    let reader;
     const request = fetch(urlFor(base, "/v1/chat/completions"), {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ model, messages: [{ role: "user", content: "Produce a long harmless stream." }], max_tokens: 64, stream: true }),
       signal: AbortSignal.any([controller.signal, timeout]),
-    }).finally(() => {
-      settled = true;
+    }).then(async (response) => {
+      if (!response.body) return { kind: "completed" };
+      reader = response.body.getReader();
+      const first = await reader.read();
+      return { kind: first.done ? "completed" : "streaming" };
     });
-    await new Promise((resolve) => setTimeout(resolve, envInt("FREEBUFF_LIVE_CANCEL_AFTER_MS", 250, 2_000)));
-    if (settled) {
+    const cancelReader = async () => {
+      if (!reader) return;
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+      reader = undefined;
+    };
+    let timer;
+    try {
+      const waitToCancel = new Promise((resolve) => {
+        timer = setTimeout(() => resolve({ kind: "cancelled" }), envInt("FREEBUFF_LIVE_CANCEL_AFTER_MS", 250, 2_000));
+      });
+      let observed;
+      try {
+        observed = await Promise.race([request, waitToCancel]);
+      } catch (error) {
+        controller.abort();
+        await cancelReader();
+        await request.catch(() => undefined);
+        throw error;
+      }
+      if (observed.kind === "completed") {
+        controller.abort();
+        await cancelReader();
+        await request.catch(() => undefined);
+        return { result: "not_proven", errorCategory: "response_completed_before_cancel" };
+      }
+      controller.abort();
+      await cancelReader();
       await request.catch(() => undefined);
-      return { result: "not_proven", errorCategory: "response_completed_before_cancel" };
+      if (timeout.aborted && !controller.signal.aborted) throw new SmokeError("timeout");
+      return {};
+    } finally {
+      clearTimeout(timer);
     }
-    controller.abort();
-    await request.catch(() => undefined);
-    if (timeout.aborted && !controller.signal.aborted) throw new SmokeError("timeout");
-    return {};
   }, evidence);
 
   await step("capability_truthfulness", async () => {
