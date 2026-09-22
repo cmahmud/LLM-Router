@@ -90,10 +90,10 @@ function matches(
 
 export function createFreebuffFetchMock(
   steps: FreebuffFetchStep[],
-  fallback: FreebuffFetchStep["response"] = new Response(
-    JSON.stringify({ _fixture: "synthetic", ok: true }),
-    { headers: { "Content-Type": "application/json" } }
-  )
+  fallback: FreebuffFetchStep["response"] = () =>
+    new Response(JSON.stringify({ _fixture: "synthetic", ok: true }), {
+      headers: { "Content-Type": "application/json" },
+    })
 ): {
   fetch: typeof globalThis.fetch;
   calls: FreebuffFetchCall[];
@@ -105,11 +105,16 @@ export function createFreebuffFetchMock(
     const request = input instanceof Request ? input : undefined;
     const url = request?.url || String(input);
     const requestInit: RequestInit = {
-      ...(request ? { method: request.method, headers: request.headers, body: await request.text() } : {}),
+      ...(request
+        ? {
+            method: request.method,
+            headers: request.headers,
+            body: await request.text(),
+          }
+        : {}),
       ...init,
     };
-    const bodyText =
-      typeof requestInit.body === "string" ? requestInit.body : "";
+    const bodyText = typeof requestInit.body === "string" ? requestInit.body : "";
     let bodyJson: unknown = undefined;
     if (bodyText) {
       try {
@@ -129,7 +134,7 @@ export function createFreebuffFetchMock(
       return typeof response === "function" ? await response() : response;
     }
 
-    const response = typeof fallback === "function" ? await fallback() : fallback;
+    const response = typeof fallback === "function" ? await fallback() : fallback.clone();
     if (!response) throw new Error(`No synthetic response configured for ${url}`);
     return response;
   };
