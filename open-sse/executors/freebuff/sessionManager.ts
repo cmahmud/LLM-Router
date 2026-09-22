@@ -490,10 +490,17 @@ export class FreebuffSessionManager {
       }
     }
 
-    await Promise.race([
-      Promise.allSettled(cleanups).then(() => undefined),
-      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled(cleanups).then(() => undefined),
+        new Promise<void>((resolve) => {
+          timeoutId = setTimeout(resolve, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
     this.records.clear();
   }
 
