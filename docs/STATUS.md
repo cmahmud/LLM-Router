@@ -83,6 +83,12 @@ whole file is linted; the changed P4 service/import boundary itself is clean.
 `ea2158b023f4227efd7ce70a11f9a0ba0cb5238b`. The packet keeps the existing shared
 translator and executor stack and adds no second protocol implementation.
 
+Published P5 commit checkpoints:
+
+- Implementation: `0b2901ef54819994cfcd517995c7dd06ca463874`.
+- Documentation checkpoint: `1a0db5eda721d3a3248063bdf119c93b9e3b1a1b`.
+
+
 - Offline route fixtures exercise OpenAI Chat Completions JSON and SSE, OpenAI Responses
   instructions/input conversion, and Anthropic Messages content blocks.
 - Tool continuity is checked through the gateway: Chat tool-call IDs/names/results and Anthropic
