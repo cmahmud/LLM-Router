@@ -271,6 +271,10 @@ test("Freebuff session manager: idle release deletes only the owned instance", a
     token: "fixture-owned-delete-token",
     model,
   });
+
+  // A zero idle timeout must not release a freshly admitted session before
+  // the successful waiter has converted the transition result into a lease.
+  assert.deepEqual(deletes, []);
   await lease.release();
 
   assert.deepEqual(deletes, ["fixture-owned-delete"]);
@@ -322,3 +326,69 @@ test("Freebuff session manager: leader-only abort still idles out an admission t
   assert.deepEqual(deletes, ["fixture-abandoned-instance"]);
   await manager.shutdown();
 });
+
+test("Freebuff session manager: acquire waits for idle cleanup before reusing a credential", async () => {
+  const cleanupStarted = deferred<void>();
+  const cleanup = deferred<void>();
+  const model = "deepseek/deepseek-v4-flash";
+  let admitCalls = 0;
+  let deleteCalls = 0;
+
+  const client = {
+    async getSession() {
+      return { status: "none" as const };
+    },
+    async admitSession() {
+      admitCalls += 1;
+      return {
+        status: "active" as const,
+        instanceId: `fixture-cleanup-race-${admitCalls}`,
+        model,
+      };
+    },
+    async releaseSession() {
+      deleteCalls += 1;
+      if (deleteCalls === 1) {
+        cleanupStarted.resolve(undefined);
+        await cleanup.promise;
+      }
+    },
+  };
+
+  const manager = new FreebuffSessionManager({ idleReleaseMs: 1 });
+  const first = await manager.acquire({
+    client,
+    token: "fixture-cleanup-race-token",
+    model,
+  });
+  assert.equal(first.instanceId, "fixture-cleanup-race-1");
+  await first.release();
+
+  await cleanupStarted.promise;
+
+  let secondResolved = false;
+  const secondPromise = manager
+    .acquire({
+      client,
+      token: "fixture-cleanup-race-token",
+      model,
+    })
+    .then((lease) => {
+      secondResolved = true;
+      return lease;
+    });
+
+  await Promise.resolve();
+  assert.equal(secondResolved, false);
+  assert.equal(admitCalls, 1);
+
+  cleanup.resolve(undefined);
+  const second = await secondPromise;
+
+  assert.equal(second.instanceId, "fixture-cleanup-race-2");
+  assert.equal(admitCalls, 2);
+
+  await second.release();
+  await manager.shutdown();
+});
+
