@@ -276,3 +276,49 @@ test("Freebuff session manager: idle release deletes only the owned instance", a
   assert.deepEqual(deletes, ["fixture-owned-delete"]);
   await manager.shutdown();
 });
+
+
+test("Freebuff session manager: leader-only abort still idles out an admission that later succeeds", async () => {
+  const admission = deferred<{
+    status: "active";
+    instanceId: string;
+    model: string;
+  }>();
+  const deletes: string[] = [];
+  const model = "deepseek/deepseek-v4-flash";
+
+  const client = {
+    async getSession() {
+      return { status: "none" as const };
+    },
+    async admitSession() {
+      return admission.promise;
+    },
+    async releaseSession(_token: string, instanceId: string) {
+      deletes.push(instanceId);
+    },
+  };
+
+  const manager = new FreebuffSessionManager({ idleReleaseMs: 0 });
+  const controller = new AbortController();
+  const leader = manager.acquire({
+    client,
+    token: "fixture-abandoned-admission-token",
+    model,
+    signal: controller.signal,
+  });
+
+  await Promise.resolve();
+  controller.abort(new DOMException("fixture leader cancel", "AbortError"));
+  await assert.rejects(leader, /aborted/i);
+
+  admission.resolve({
+    status: "active",
+    instanceId: "fixture-abandoned-instance",
+    model,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(deletes, ["fixture-abandoned-instance"]);
+  await manager.shutdown();
+});

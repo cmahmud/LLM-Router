@@ -77,6 +77,17 @@ test("Freebuff transport: uses dedicated admission endpoint and protocol headers
   assert.equal(headersFor(admission!).get("x-freebuff-model"), "deepseek/deepseek-v4-flash");
   assert.equal(headersFor(admission!).get("x-freebuff-wallet-spend-limit"), "0");
 
+  const finish = calls.find(
+    (call) =>
+      call.url.endsWith("/api/v1/agent-runs") &&
+      (call.bodyJson as { action?: string })?.action === "FINISH"
+  );
+  assert.ok(finish);
+  const finishBody = finish?.bodyJson as Record<string, unknown>;
+  assert.equal("totalSteps" in finishBody, false, "FINISH must not fabricate usage");
+  assert.equal("directCredits" in finishBody, false, "FINISH must not fabricate credits");
+  assert.equal("totalCredits" in finishBody, false, "FINISH must not fabricate credits");
+
   for (const call of calls) {
     assert.equal(
       headersFor(call).has("user-agent"),

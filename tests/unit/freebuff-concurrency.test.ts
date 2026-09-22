@@ -159,3 +159,28 @@ test("Freebuff request scheduler: queued waits are bounded", async () => {
   active.release();
   await scheduler.shutdown();
 });
+
+
+test("Freebuff request scheduler: active caller abort keeps the permit held until lifecycle cleanup", async () => {
+  const scheduler = new FreebuffRequestScheduler({
+    maxGlobal: 1,
+    maxPerCredential: 1,
+    maxQueued: 8,
+    waitTimeoutMs: 5_000,
+  });
+
+  const controller = new AbortController();
+  const active = await scheduler.acquire("same-account", controller.signal);
+  const follower = scheduler.acquire("same-account");
+
+  controller.abort(new DOMException("fixture active cancel", "AbortError"));
+  await Promise.resolve();
+
+  assert.equal(active.signal.aborted, true);
+  assert.deepEqual(scheduler.stats(), { active: 1, queued: 1 });
+
+  active.release();
+  const next = await follower;
+  next.release();
+  await scheduler.shutdown();
+});

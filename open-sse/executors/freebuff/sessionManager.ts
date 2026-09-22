@@ -218,6 +218,9 @@ export class FreebuffSessionManager {
         throw closedError();
       }
       record.owned = owned;
+      if (record.leaseCount === 0) {
+        await this.scheduleIdleRelease(record);
+      }
       return owned;
     })();
 
@@ -383,6 +386,7 @@ export class FreebuffSessionManager {
     record: SessionRecord,
     owned: OwnedSession
   ): FreebuffSessionLease {
+    this.clearIdleTimer(record);
     record.leaseCount += 1;
     let released = false;
 

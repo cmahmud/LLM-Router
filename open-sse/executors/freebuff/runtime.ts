@@ -187,7 +187,9 @@ export class FreebuffRequestScheduler {
               new DOMException("Freebuff request aborted", "AbortError")
           );
         }
-        release();
+        // Keep the permit held until the executor/run lifecycle releases it.
+        // Releasing here would allow a new same-credential request to overlap
+        // cancelled-run cleanup.
       };
       callerSignal.addEventListener("abort", callerAbortListener, {
         once: true,
