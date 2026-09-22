@@ -3,14 +3,13 @@ title: "LLM-Router: Project Status"
 lastUpdated: 2026-09-22
 ---
 
-# Status — lifecycle/streaming integrated; P4 discovery isolated
+# Status — lifecycle, streaming, and P4 integrated; P5 isolated
 
-Phase 1, P2 lifecycle and P3 streaming are integrated into `dev` at
-`b216f43172682fab44528382e3e022977bb9a449`. The integration was a dependency-preserving
-fast-forward through the reviewed `freebuff-p3-streaming` head
-`3497dfdc899f4f7fed69bb15a223a121174878de`, which includes the validated
-`freebuff-p2-lifecycle` work. PR #1 remains draft/open/unmerged and is historical; no merge
-commit or force-push was used.
+Phase 1, P2 lifecycle, P3 streaming, and P4 model discovery are integrated into `dev`.
+P4 was integrated by a dependency-preserving fast-forward to
+`a6cdd8c9267888fdbe339f52aca7708b90eba935`, preserving the validated lifecycle/streaming
+history. PR #1 remains draft/open/unmerged and is historical; no merge commit or force-push was
+used. The P4 review found no unresolved material defect.
 
 This checkpoint does not certify permitted live FreeBuff model access or production deployment.
 
@@ -37,7 +36,7 @@ This checkpoint does not certify permitted live FreeBuff model access or product
 
 ## P4 model discovery
 
-The isolated branch `freebuff-p4-model-discovery` implements the approved authoritative-source design:
+`freebuff-p4-model-discovery` is now integrated into `dev`; its final branch head was `a6cdd8c9267888fdbe339f52aca7708b90eba935`. The approved authoritative-source design is:
 
 - Fetches the official `CodebuffAI/freebuff` source files at one pinned revision,
   `a37beff7a5db909eb6db54654431bb521af7da1a`.
@@ -89,9 +88,9 @@ whole file is linted; the changed P4 service/import boundary itself is clean.
 
 ## Next packet
 
-Keep `freebuff-p4-model-discovery` isolated for architectural review. The next exact packet after
-approval is FreeBuff protocol/conformance validation against an authorized test surface, followed by
-any narrowly evidenced catalog or capability corrections.
+Create the isolated branch `freebuff-p5-protocol-conformance` from the current `dev` head. The packet
+covers offline gateway protocol conformance, tool continuity, capability limits, and sanitized
+FreeBuff health. Live validation remains blocked unless authorized access already exists.
 
 ## Deployment state
 
