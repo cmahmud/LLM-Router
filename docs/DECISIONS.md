@@ -105,3 +105,27 @@ not establish a reusable source-code grant in this audit. Use concepts only from
 No third-party implementation code is copied into this milestone. Any later adaptation must retain
 the actual applicable notices and record file-level provenance; generated extracts need provenance
 and license review too. Do not import captured credentials or traffic dumps from references.
+
+## D10 — P4 uses the pinned official catalog with bounded cached fallback
+
+**Selected:** fetch the public `CodebuffAI/freebuff` source files at the single resolved commit
+`a37beff7a5db909eb6db54654431bb521af7da1a`. Parse only the supported constant/object subset:
+the base2 `FREEBUFF_ROOT_AGENT_ID_BY_MODEL` map, the `FREEBUFF_MODELS` surface, model metadata
+and `FREEBUFF_PAUSED_FREE_MODEL_IDS`. The parser never evaluates fetched TypeScript, and it rejects
+mixed revisions, unsupported expressions, incomplete mappings and conflicts atomically.
+
+The provider keeps one in-memory immutable snapshot with a six-hour refresh interval, a ten-second
+per-file timeout, a bounded source size, single-flight refresh deduplication and caller cancellation.
+A valid empty eligible surface remains empty. Refresh failures retain last-known-good data for seven
+days; after the stale ceiling, the generated emergency fixture is used. The fixture is pinned to the
+same official revision and contains only active base2 rows, so withdrawn rows are not re-advertised.
+
+Executor resolution reads the validated snapshot and fails unknown models cleanly; it does not scrape
+the source during inference. The provider registry and `/v1/models` use the same normalized catalog.
+The explicit provider model-sync route reuses OmniRoute's existing synced-model persistence for
+official, empty and last-known-good snapshots, while never stamping an emergency fallback as fresh.
+Capabilities are evidence-only: unknown tool, video, context and Responses support are omitted.
+
+**Alternative:** a permanently hard-coded table, a third-party model API, regex/evaluation of arbitrary
+upstream TypeScript, or remote discovery on every inference. These were rejected because they either
+drift, are not authoritative, widen the trust boundary, or add latency/race risk on the 2-core VPS.

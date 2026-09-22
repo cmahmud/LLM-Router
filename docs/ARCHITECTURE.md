@@ -180,29 +180,38 @@ content-block indices, tool-use/tool-result continuity, stop reasons and error f
 ## Model discovery
 
 No dependable public JSON endpoint exposing the complete FreeBuff model/root-agent/entitlement
-contract was established. Use the official repository as an auditable source, not a third-party
-proxy's table. Resolve a single upstream commit and fetch all source files at that SHA; never mix
-moving `main` files in one refresh. Parse a constrained data subset/AST without evaluating fetched
-TypeScript. Reject unsupported syntax, missing constants, duplicate/conflicting mappings or an
-incomplete catalog atomically. A refresh failure retains the last known good snapshot.
+contract was established. The implemented P4 mechanism uses the official repository as an auditable
+source, not a third-party proxy table. It resolves one pinned upstream commit
+\`a37beff7a5db909eb6db54654431bb521af7da1a\` and fetches all required source files at that SHA:
+model IDs, model records, model configuration, entitlements and the base2 agent map.
 
-Proposed record: upstream model ID, client surface, root agent ID, source revision, availability
-state, verified capabilities, context limit if authoritative, and observed-at timestamp. Separate
-catalog membership, account access, and demonstrated gateway compatibility. Root mappings must
-come from the appropriate official surface map; never select a random helper agent or default an
-unknown model to `base2-free`. Retired-but-draining IDs are not new-request offerings.
+The parser accepts only constrained declarations: literal/aliased constants, literal model objects,
+the \`FREEBUFF_MODELS\` offered surface (including statically resolvable feature-gated spreads), and
+\`FREEBUFF_PAUSED_FREE_MODEL_IDS\`. It does not evaluate or import fetched TypeScript. Unsupported
+syntax, missing constants, duplicate/conflicting mappings, mixed revisions, missing display names or
+an incomplete offered catalog reject the snapshot atomically. Retired-but-draining IDs are not new
+request offerings.
 
-Use a small generated, provenance-bearing fallback snapshot. Prefer last-known-good data, with a
-proposed six-hour refresh and seven-day stale ceiling; after that, expose stale health and require
-validated admission/model resolution rather than pretending the inventory is current. A verified
-empty eligible set means none, whereas parse failure means unknown. Neither should silently
-resurrect the old static catalog. No capability should default to true.
+The normalized record contains the upstream model ID, display name, base2 root agent ID, source
+revision, active surface and only source-evidenced capabilities. Reasoning is present only when the
+source declares a reasoning effort field; \`multimodal\` is carried as the vision flag. Tool calling,
+video, context size and Responses support remain unknown unless a future authoritative source
+declares them. Account access and demonstrated gateway compatibility remain separate questions.
 
-Integrate through existing provider-model discovery/synced model persistence and `/v1/models`
-catalog APIs. Important: current generic coverage merging preserves unmatched static rows. A
-FreeBuff-specific authoritative overlay must remove retired rows from both listing AND resolution,
-including the valid-empty case, and invalidate catalog caches. Keep canonical `freebuff/` and
-`fb/` aliases consistent without touching other providers.
+The provider uses a bounded in-memory snapshot with a six-hour refresh interval, ten-second per-file
+timeout, maximum source size and single-flight refresh deduplication. Caller cancellation propagates.
+A valid empty eligible set is distinct from refresh failure. A failed refresh retains last-known-good
+data for seven days; after that ceiling the provenance-bearing emergency fixture is used. The fixture
+is pinned to the same official revision and contains only active base2 rows, so withdrawn rows are not
+silently resurrected.
+
+Executor model-to-agent resolution reads the current validated snapshot and fails unknown models
+cleanly; inference never performs a remote catalog scrape. The registry and \`/v1/models\` use the
+same normalized records. The explicit FreeBuff model-sync route reuses
+\`replaceSyncedAvailableModelsForConnection\` for official, empty and last-known-good snapshots, while
+an emergency fallback is not stamped as fresh authoritative state. FreeBuff's authoritative overlay
+removes retired rows from listing and resolution, including the valid-empty case, and keeps canonical
+\`freebuff/\` and \`fb/\` aliases consistent without changing other providers.
 
 ## Deployment and observability
 

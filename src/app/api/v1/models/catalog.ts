@@ -1,4 +1,8 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
+import {
+  getFreebuffCatalog,
+  freebuffCatalogModelsForRegistry,
+} from "@/lib/providers/freebuffCatalog";
 import { NOAUTH_PROVIDERS } from "@/shared/constants/providers";
 import { getCombos } from "@/lib/db/combos";
 import { isComboNameAllowedForKey } from "@/shared/utils/apiKeyPolicy";
@@ -1034,10 +1038,24 @@ async function buildUnifiedModelsResponseCore(
       providerIdToAlias
     );
 
-    // Add provider models (chat)
-    for (const [alias, providerModels] of Object.entries(PROVIDER_MODELS)) {
+    // Add provider models (chat). Freebuff is sourced from its pinned official
+    // catalog when a Freebuff connection is active; the registry remains the
+    // emergency fallback if refresh is unavailable.
+    let freebuffCatalogModels: ReturnType<typeof freebuffCatalogModelsForRegistry> | null = null;
+    if (activeAliases.has("fb") || activeAliases.has("freebuff")) {
+      try {
+        freebuffCatalogModels = freebuffCatalogModelsForRegistry(await getFreebuffCatalog());
+      } catch {
+        freebuffCatalogModels = null;
+      }
+    }
+    for (const [alias, registeredProviderModels] of Object.entries(PROVIDER_MODELS)) {
       const providerId = aliasToProviderId[alias] || alias;
       const canonicalProviderId = resolveCanonicalProviderId(alias, providerId);
+      const providerModels =
+        canonicalProviderId === "freebuff" && freebuffCatalogModels
+          ? freebuffCatalogModels
+          : registeredProviderModels;
 
       if (
         isNoAuthProviderBlocked(blockedProviders, canonicalProviderId, alias) ||

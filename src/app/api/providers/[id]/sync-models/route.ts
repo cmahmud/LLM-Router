@@ -31,6 +31,10 @@ import { replaceSyncedAvailableModelsForConnection } from "@/lib/db/models";
 import { GET as getProviderModels } from "../models/route";
 import { isDegradedDiscovery } from "./degradedLocalCatalog";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import {
+  freebuffCatalogModelsForRegistry,
+  getFreebuffCatalog,
+} from "@/lib/providers/freebuffCatalog";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -430,6 +434,39 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     logProvider = toNonEmptyString(connection.provider) || "unknown";
     channelLabel = getModelSyncChannelLabel(connection);
+
+    if (logProvider === "freebuff" || logProvider === "fb") {
+      const snapshot = await getFreebuffCatalog({ force: true });
+      const discovered = freebuffCatalogModelsForRegistry(snapshot);
+      const previous = await getSyncedAvailableModelsForConnection(logProvider, id);
+      // A fallback snapshot is emergency routing metadata, not proof that the
+      // upstream source was refreshed. Do not stamp it as a fresh authoritative
+      // synced catalog; official, empty, and last-known-good snapshots may sync.
+      const shouldPersist =
+        snapshot.status === "official" ||
+        snapshot.status === "empty" ||
+        snapshot.status === "last-known-good";
+      const synced = shouldPersist
+        ? await replaceSyncedAvailableModelsForConnection(logProvider, id, discovered)
+        : previous;
+      const previousIds = new Set(previous.map((model) => model.id));
+      const currentIds = new Set(discovered.map((model) => model.id));
+      const added = discovered.filter((model) => !previousIds.has(model.id)).length;
+      const removed = previous.filter((model) => !currentIds.has(model.id)).length;
+      return NextResponse.json({
+        ok: true,
+        provider: logProvider,
+        connectionId: id,
+        source: "freebuff-official",
+        catalogStatus: snapshot.status,
+        sourceRevision: snapshot.sourceRevision,
+        stale: snapshot.stale,
+        persisted: shouldPersist,
+        modelChanges: { added, removed, total: added + removed },
+        syncedModels: synced.length,
+        models: discovered,
+      });
+    }
 
     // Volcano Ark plan providers: discover models live from the console API
     // (cookie+csrf captured at bind time). The chat API has no /models
