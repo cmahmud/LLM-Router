@@ -182,19 +182,19 @@ content-block indices, tool-use/tool-result continuity, stop reasons and error f
 No dependable public JSON endpoint exposing the complete FreeBuff model/root-agent/entitlement
 contract was established. The implemented P4 mechanism uses the official repository as an auditable
 source, not a third-party proxy table. It resolves one pinned upstream commit
-\`a37beff7a5db909eb6db54654431bb521af7da1a\` and fetches all required source files at that SHA:
+`a37beff7a5db909eb6db54654431bb521af7da1a` and fetches all required source files at that SHA:
 model IDs, model records, model configuration, entitlements and the base2 agent map.
 
 The parser accepts only constrained declarations: literal/aliased constants, literal model objects,
-the \`FREEBUFF_MODELS\` offered surface (including statically resolvable feature-gated spreads), and
-\`FREEBUFF_PAUSED_FREE_MODEL_IDS\`. It does not evaluate or import fetched TypeScript. Unsupported
+the `FREEBUFF_MODELS` offered surface (including statically resolvable feature-gated spreads), and
+`FREEBUFF_PAUSED_FREE_MODEL_IDS`. It does not evaluate or import fetched TypeScript. Unsupported
 syntax, missing constants, duplicate/conflicting mappings, mixed revisions, missing display names or
 an incomplete offered catalog reject the snapshot atomically. Retired-but-draining IDs are not new
 request offerings.
 
 The normalized record contains the upstream model ID, display name, base2 root agent ID, source
 revision, active surface and only source-evidenced capabilities. Reasoning is present only when the
-source declares a reasoning effort field; \`multimodal\` is carried as the vision flag. Tool calling,
+source declares a reasoning effort field; `multimodal` is carried as the vision flag. Tool calling,
 video, context size and Responses support remain unknown unless a future authoritative source
 declares them. Account access and demonstrated gateway compatibility remain separate questions.
 
@@ -206,12 +206,12 @@ is pinned to the same official revision and contains only active base2 rows, so 
 silently resurrected.
 
 Executor model-to-agent resolution reads the current validated snapshot and fails unknown models
-cleanly; inference never performs a remote catalog scrape. The registry and \`/v1/models\` use the
+cleanly; inference never performs a remote catalog scrape. The registry and `/v1/models` use the
 same normalized records. The explicit FreeBuff model-sync route reuses
-\`replaceSyncedAvailableModelsForConnection\` for official, empty and last-known-good snapshots, while
+`replaceSyncedAvailableModelsForConnection` for official, empty and last-known-good snapshots, while
 an emergency fallback is not stamped as fresh authoritative state. FreeBuff's authoritative overlay
 removes retired rows from listing and resolution, including the valid-empty case, and keeps canonical
-\`freebuff/\` and \`fb/\` aliases consistent without changing other providers.
+`freebuff/` and `fb/` aliases consistent without changing other providers.
 
 ## Deployment and observability
 

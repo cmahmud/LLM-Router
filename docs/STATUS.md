@@ -5,11 +5,11 @@ lastUpdated: 2026-09-22
 
 # Status — lifecycle/streaming integrated; P4 discovery isolated
 
-Phase 1, P2 lifecycle and P3 streaming are integrated into \`dev\` at
-\`b216f43172682fab44528382e3e022977bb9a449\`. The integration was a dependency-preserving
-fast-forward through the reviewed \`freebuff-p3-streaming\` head
-\`3497dfdc899f4f7fed69bb15a223a121174878de\`, which includes the validated
-\`freebuff-p2-lifecycle\` work. PR #1 remains draft/open/unmerged and is historical; no merge
+Phase 1, P2 lifecycle and P3 streaming are integrated into `dev` at
+`b216f43172682fab44528382e3e022977bb9a449`. The integration was a dependency-preserving
+fast-forward through the reviewed `freebuff-p3-streaming` head
+`3497dfdc899f4f7fed69bb15a223a121174878de`, which includes the validated
+`freebuff-p2-lifecycle` work. PR #1 remains draft/open/unmerged and is historical; no merge
 commit or force-push was used.
 
 This checkpoint does not certify permitted live FreeBuff model access or production deployment.
@@ -29,7 +29,7 @@ This checkpoint does not certify permitted live FreeBuff model access or product
 ### P3 streaming
 
 - Pull-based response wrapping for SSE and non-streaming JSON that preserves downstream bytes.
-- Bounded UTF-8/SSE observation with CRLF/CR/LF, comments, multiline data, terminal \`[DONE]\`,
+- Bounded UTF-8/SSE observation with CRLF/CR/LF, comments, multiline data, terminal `[DONE]`,
   malformed/oversized/truncated streams and upstream error-frame detection.
 - Caller abort and downstream cancellation propagate to the upstream reader and finalize the run.
 - Tool-call fragments and names remain untouched; no signature-tool injection or tool renaming.
@@ -37,12 +37,12 @@ This checkpoint does not certify permitted live FreeBuff model access or product
 
 ## P4 model discovery
 
-The isolated branch \`freebuff-p4-model-discovery\` implements the approved authoritative-source design:
+The isolated branch `freebuff-p4-model-discovery` implements the approved authoritative-source design:
 
-- Fetches the official \`CodebuffAI/freebuff\` source files at one pinned revision,
-  \`a37beff7a5db909eb6db54654431bb521af7da1a\`.
+- Fetches the official `CodebuffAI/freebuff` source files at one pinned revision,
+  `a37beff7a5db909eb6db54654431bb521af7da1a`.
 - Parses only constrained constants, model records, the base2 root-agent map, the offered
-  \`FREEBUFF_MODELS\` surface and \`FREEBUFF_PAUSED_FREE_MODEL_IDS\`; fetched TypeScript is never
+  `FREEBUFF_MODELS` surface and `FREEBUFF_PAUSED_FREE_MODEL_IDS`; fetched TypeScript is never
   evaluated or imported.
 - Rejects mixed revisions, unsupported expressions, duplicate/conflicting mappings, missing
   display names and incomplete offered-to-agent mappings atomically.
@@ -52,26 +52,26 @@ The isolated branch \`freebuff-p4-model-discovery\` implements the approved auth
   failures, and otherwise uses a provenance-bearing emergency fallback generated from the same
   official revision.
 - Keeps executor model-to-agent resolution on the validated in-memory snapshot, with no remote
-  discovery request per inference. The provider registry and \`/v1/models\` use the same normalized
+  discovery request per inference. The provider registry and `/v1/models` use the same normalized
   catalog; the explicit provider sync route can persist official/empty/last-known-good rows through
   OmniRoute's existing synced-model API without persisting an emergency fallback as fresh.
 - Capability flags are evidence-based: reasoning is present only when the source declares a reasoning
-  field; vision follows the source's explicit \`multimodal\` value; tools, video, context size and
+  field; vision follows the source's explicit `multimodal` value; tools, video, context size and
   Responses support remain unknown rather than assumed.
 
 ### P4 validation
 
-Validated in the ARM64 VPS worktree using the existing \`v24.13.0-linux-arm64\` runtime:
+Validated in the ARM64 VPS worktree using the existing `v24.13.0-linux-arm64` runtime:
 
-- Discovery/parser/cache tests: **12 passed, 0 failed**.
+- Discovery/parser/cache tests: **13 passed, 0 failed**.
 - Combined FreeBuff provider, lifecycle, concurrency, run, session, streaming and discovery tests:
-  **67 passed, 0 failed**.
+  **68 passed, 0 failed**.
 - Official pinned-source smoke parse: **8 active base2 models**, with paused rows excluded.
-- \`npm run check:open-sse-typecheck\`: **0 errors; pass**.
-- \`npm run typecheck:core\`: **pass**.
+- `npm run check:open-sse-typecheck`: **0 errors; pass**.
+- `npm run typecheck:core`: **pass**.
 - Targeted ESLint for changed P4 files: **pass**.
 - Prettier check: **pass**.
-- \`git diff --check\`: **pass**.
+- `git diff --check`: **pass**.
 
 The full route lint still reports unrelated pre-existing warnings in the large catalog module when that
 whole file is linted; the changed P4 service/import boundary itself is clean.
@@ -89,13 +89,13 @@ whole file is linted; the changed P4 service/import boundary itself is clean.
 
 ## Next packet
 
-Keep \`freebuff-p4-model-discovery\` isolated for architectural review. The next exact packet after
+Keep `freebuff-p4-model-discovery` isolated for architectural review. The next exact packet after
 approval is FreeBuff protocol/conformance validation against an authorized test surface, followed by
 any narrowly evidenced catalog or capability corrections.
 
 ## Deployment state
 
 **Not deployed and not production-ready for live FreeBuff.** The primary VPS checkout at
-\`/home/ubuntu/projects/llm-router-dev\` remains clean on \`dev\` at
-\`b216f43172682fab44528382e3e022977bb9a449\`. P4 validation ran in
-\`/home/ubuntu/projects/llm-router-p4-model-discovery\`; GitHub remains the durable source of truth.
+`/home/ubuntu/projects/llm-router-dev` remains clean on `dev` at
+`b216f43172682fab44528382e3e022977bb9a449`. P4 validation ran in
+`/home/ubuntu/projects/llm-router-p4-model-discovery`; GitHub remains the durable source of truth.
