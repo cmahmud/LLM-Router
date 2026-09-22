@@ -3,7 +3,7 @@ title: "LLM-Router: Project Status"
 lastUpdated: 2026-09-22
 ---
 
-# Status — lifecycle, streaming, model discovery, and P5 protocol conformance integrated
+# Status — lifecycle, streaming, model discovery, protocol conformance, and P6 gate
 
 Phase 1, P2 lifecycle, P3 streaming, and P4 model discovery are integrated into `dev`.
 P4 was integrated by a dependency-preserving fast-forward to
@@ -128,6 +128,70 @@ Review classification: **0 blockers, 1 important finding fixed, 0 unresolved imp
 The remaining limitations below are documented and unadvertised rather than silently certified.
 P5 is integrated into `dev`; the feature branch preserves its dependency history.
 
+
+## P6 deployment-readiness gate
+
+P6 is isolated on `freebuff-p6-deployment-readiness`, based on integrated `dev` at
+`cd6c254bbab77e723830a3758d1ad188d3662e6e`. The implementation/documentation
+head before this STATUS checkpoint is `55e345d6bd09cee15c065096595bc03ef20c7ac9`.
+Only the bounded live harness, deployment/rollback operations document, and
+the deployment decision were added; P2–P5 code and `dev` were not modified.
+
+### ARM64/offline evidence
+
+- The approved VPS runtime was explicit Node.js `v24.13.0-linux-arm64`
+  (`aarch64`, 2 cores, about 11 GiB RAM); npm was 11.6.2.
+- `npm ci --include=optional --no-audit --no-fund --ignore-scripts` passed
+  (2,537 packages added). npm emitted only the existing jsdom preferred-engine
+  warning for Node 24.13.0.
+- `npm run check:node-runtime` passed.
+- `npm run check:native-deps` passed: all 33 externalized packages resolved,
+  including 8 optional dependencies. The ARM64 load matrix passed for
+  better-sqlite3, sharp, @swc/core, esbuild, onnxruntime-node, and wreq-js.
+  `node-pty` is not a current dependency or source reference and was not
+  added.
+- `npm run check:build-scope` passed (9,355 source files, below the 12,000
+  guard).
+
+### Build and remaining offline gates
+
+- A build forced to a 4 GiB heap failed with a Next webpack-worker JavaScript
+  heap OOM. This was an invalid low-memory override, not evidence of a source
+  regression, but it is not a passing build.
+- A second build was started with the documented 8 GiB budget, durable logging,
+  and the approved ARM64 runtime. The VPS tunnel-client stopped responding while
+  it was running; the final log, exit status, standalone artifact, and host
+  state are therefore unverified.
+- Because the VPS connector is unavailable, P6 has not claimed isolated
+  startup, readiness/liveness/database health, TERM shutdown, restart,
+  rollback rehearsal, resource/concurrency smoke, non-FreeBuff regression, or
+  the remaining full P6 validation suites. The current branch script was also
+  not rechecked after publication; no result is inferred from the lost
+  session.
+- The connector error was reported once and retries stopped. No deployment,
+  service activation, public routing change, data migration, or MCP change was
+  performed.
+
+### Live and security status
+
+- Approved-environment credential-name checks found no authorized FreeBuff or
+  gateway credentials; values were never inspected. No live FreeBuff inference,
+  third-party client smoke, or credential validation was performed.
+- `LIVE FREEBUFF VALIDATION BLOCKED: AUTHORIZED ACCESS REQUIRED`
+- No secrets were committed. A repository secret scan remains pending because
+  the VPS connector failed before it could be rerun; the changed diff contains
+  only placeholders and sanitized harness output fields.
+
+### P6 classification
+
+**P6 BLOCKED — OFFLINE GATE INCOMPLETE (VPS CONNECTOR UNAVAILABLE).**
+
+This is not one of the successful end-state classifications: `OFFLINE
+DEPLOYMENT READY` requires a passing build and isolated runtime/rollback
+checks. No live-failure classification is applicable because no authorized
+live request was made. Restore the VPS connector and finish the offline gate
+before any merge or deployment decision.
+
 ## Live behavior and limitations
 
 - Live FreeBuff inference: **not performed**.
@@ -142,16 +206,15 @@ P5 is integrated into `dev`; the feature branch preserves its dependency history
 
 ## Next packet
 
-`P6 — authorized live contract validation and deployment gate`: only with explicit authorized
-FreeBuff access, rerun the bounded live session/admission/Chat/Responses/Anthropic/stream
-validation and review deployment readiness. No live inference, credential validation, or deployment
-is claimed by P5. If authorization is not available, the next work should be architectural review
-of the offline packet rather than an access workaround.
+Restore the VPS connector, inspect the durable 8 GiB build log and host state,
+then complete the isolated startup/health/shutdown/restart, rollback,
+resource/concurrency, non-FreeBuff, secret-scan, and relevant regression gates.
+Only after the offline gate is clean should authorized live validation be
+considered. Do not merge P6 into `dev` while the gate is incomplete.
 
 ## Deployment state
 
-**Not deployed and not production-ready for live FreeBuff.** The primary VPS checkout at
-`/home/ubuntu/projects/llm-router-dev` is clean on integrated `dev`. Independent P5 review ran
-in the clean detached worktree
-`/home/ubuntu/projects/llm-router-dev/.claude/worktrees/p5-review-20260922`; the pre-existing dirty
-P5 worktree was not modified. GitHub remains the durable source of truth.
+**Not deployed and not deployment-ready.** `dev` remains
+`cd6c254bbab77e723830a3758d1ad188d3662e6e`; the P6 branch is intentionally
+isolated. The existing MCP service, public routing, data directories, and
+system services were not changed.
